@@ -1,0 +1,59 @@
+# Python
+*.py[cod]
+*.so
+*.dylib
+__pycache__/
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv/
+
+# Django
+*.log
+*.sqlite3
+db.sqlite3
+*.pyc
+__pycache__/
+
+# Python egg files
+*.egg
+*.egg-info
+dist/
+build/
+.eggs/
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store      # macOS
+Thumbs.db      # Windows
+
+# Backup files
+*.bak
+*.swp
+*.swo
+
+# Environment variable files
+*.env
+*.env.*
+.venv/
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints
+
+# Static files
+static/
+media/
+staticfiles/
+
+# Other
+*.log
