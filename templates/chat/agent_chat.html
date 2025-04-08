@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Chat with User</title>
+    <title>Agent Chat</title>
     <style>
         #chat-box {
             border: 1px solid #000;
@@ -12,93 +12,171 @@
             display: flex;
             flex-direction: column;
         }
-
         .message {
             margin: 5px 0;
             max-width: 70%;
-            padding: 8px 12px;
-            border-radius: 10px;
-            clear: both;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 500;
+            position: relative;
         }
-
-        .agent {
-            background-color: #d0f5c9;
-            color: black;
-            align-self: flex-end;
-            text-align: right;
-        }
-
         .user {
-            background-color: #d0e6ff;
-            color: black;
+            background-color: #D0E6FF;
             align-self: flex-start;
             text-align: left;
         }
-
+        .agent {
+            background-color: #E2FFE2;
+            align-self: flex-end;
+            text-align: right;
+        }
         .system {
             text-align: center;
             color: gray;
             font-style: italic;
             width: 100%;
         }
+        .timestamp {
+            display: block;
+            font-size: 12px;
+            color: #999;
+            margin-top: 4px;
+        }
+        .tick {
+            font-size: 14px;
+            margin-left: 5px;
+        }
+        .tick.blue {
+            color: #2196F3;
+        }
+        #typing-indicator {
+            font-size: 14px;
+            font-style: italic;
+            color: gray;
+            margin-top: 5px;
+            height: 20px;
+            display: none;
+        }
+        .dot-one, .dot-two, .dot-three {
+            animation: blink 1.4s infinite both;
+            font-weight: bold;
+        }
+        .dot-two { animation-delay: 0.2s; }
+        .dot-three { animation-delay: 0.4s; }
+        @keyframes blink {
+            0% { opacity: 0.2; }
+            20% { opacity: 1; }
+            100% { opacity: 0.2; }
+        }
     </style>
 </head>
 <body>
     <h2>You're chatting in room: <span class="system">{{ room_id }}</span></h2>
-    
-    <div id="chat-box"></div>
-
-    <input type="text" id="message-input" placeholder="Type your reply..." />
+    <div id="chat-box">
+        <div id="typing-indicator"></div>
+    </div>
+    <input type="text" id="message-input" placeholder="Type your reply..." oninput="notifyTyping()" />
     <button onclick="sendMessage()">Send</button>
-
     <script>
         const roomId = "{{ room_id }}";
         const currentUser = "Agent";
-        const chatBox = document.getElementById("chat-box");
         const socket = new WebSocket(`ws://${window.location.host}/ws/chat/${roomId}/`);
+        const chatBox = document.getElementById("chat-box");
+        const typingIndicator = document.getElementById("typing-indicator");
+        const sentMessages = {};
 
-        function appendMessage(senderLabel, message, className = "") {
+        function getTicks(status) {
+            switch (status) {
+                case "sent": return '<span class="tick">✓</span>';
+                case "delivered": return '<span class="tick">✓✓</span>';
+                case "seen": return '<span class="tick blue">✓✓</span>';
+                default: return "";
+            }
+        }
+
+        function appendMessage(sender, message, className, messageId, status = "sent") {
             const div = document.createElement("div");
             div.classList.add("message", className);
-            div.innerHTML = `<strong>${senderLabel}:</strong> ${message}`;
-            chatBox.appendChild(div);
+            div.id = `msg-${messageId}`;
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const ticks = (sender === currentUser) ? getTicks(status) : "";
+            div.innerHTML = `<strong>${sender}:</strong> ${message}<span class="timestamp">${time} ${ticks}</span>`;
+            chatBox.insertBefore(div, typingIndicator);
             chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function updateMessageStatus(messageId, status) {
+            const messageDiv = document.getElementById(`msg-${messageId}`);
+            if (messageDiv) {
+                const parts = messageDiv.innerHTML.split('<span class="timestamp">')[0];
+                const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                messageDiv.innerHTML = `${parts}<span class="timestamp">${time} ${getTicks(status)}</span>`;
+            }
         }
 
         socket.onmessage = function(e) {
             const data = JSON.parse(e.data);
+            console.log("Received:", data);
+            if (data.typing !== undefined) {
+                if (data.typing && data.sender !== currentUser) {
+                    typingIndicator.innerHTML = `<strong>${data.sender}:</strong> typing<span class="dot-one">.</span><span class="dot-two">.</span><span class="dot-three">.</span>`;
+                    typingIndicator.style.display = "block";
+                } else {
+                    typingIndicator.style.display = "none";
+                    typingIndicator.innerHTML = "";
+                }
+                chatBox.scrollTop = chatBox.scrollHeight;
+                return;
+            }
+            if (data.status && data.message_id && sentMessages[data.message_id]) {
+                updateMessageStatus(data.message_id, data.status);
+                return;
+            }
             const sender = data.sender;
             const message = data.message;
-        
-            // Prevent showing the same message again if it's from self
-            if (sender === currentUser) return;
-        
-            let senderLabel = sender;
-            let className = "user"; // by default we assume it's from user
-        
-            if (sender === "User") {
-                className = "user";
-            } else if (sender === "Agent") {
-                className = "agent";
+            const messageId = data.message_id;
+            if (message && sender !== currentUser) {
+                appendMessage(sender, message, "user", messageId, "delivered");
+                socket.send(JSON.stringify({ status: "seen", message_id: messageId, sender: currentUser }));
             }
-        
-            appendMessage(senderLabel, message, className);
         };
-        
 
         socket.onclose = function() {
-            appendMessage("System", "Connection closed. Please refresh.", "system");
-        }
+            appendMessage("System", "Connection closed. Please refresh.", "system", `sys-${Date.now()}`);
+        };
+
+        socket.onerror = function() {
+            appendMessage("System", "WebSocket error occurred.", "system", `sys-${Date.now()}`);
+        };
 
         function sendMessage() {
             const input = document.getElementById("message-input");
             const message = input.value.trim();
-            if (message !== "") {
-                socket.send(JSON.stringify({ 'message': message, 'sender': currentUser }));
-                appendMessage("You", message, "agent");
+            if (message) {
+                const messageId = crypto.randomUUID();
+                socket.send(JSON.stringify({ message, sender: currentUser, message_id: messageId }));
+                appendMessage(currentUser, message, "agent", messageId, "sent");
+                sentMessages[messageId] = true;
                 input.value = "";
             }
         }
+
+        let typingTimeout;
+        function notifyTyping() {
+            const input = document.getElementById("message-input");
+            if (input.value.trim()) {
+                socket.send(JSON.stringify({ typing: true, sender: currentUser }));
+                clearTimeout(typingTimeout);
+                typingTimeout = setTimeout(() => {
+                    socket.send(JSON.stringify({ typing: false, sender: currentUser }));
+                }, 1000);
+            }
+        }
+
+        document.getElementById("message-input").addEventListener("keyup", function(event) {
+            if (event.key === "Enter") sendMessage();
+        });
     </script>
 </body>
 </html>
