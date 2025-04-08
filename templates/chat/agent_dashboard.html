@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Agent Dashboard</title>
+    <style>
+        ul {
+            list-style: none;
+            padding: 0;
+        }
+        li {
+            margin-bottom: 15px;
+        }
+        .assigned {
+            color: gray;
+        }
+        .unassigned {
+            color: green;
+        }
+        .meta {
+            font-size: 0.9em;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <h2>Available Chat Rooms</h2>
+    <ul>
+        {% for room in rooms %}
+        <li>
+            <strong>Room:</strong> {{ room_id }} <br />
+            {% if not room.assigned_agent %}
+                <a class="unassigned" href="{% url 'agent_chat' room.room_id %}">Join</a>
+            {% else %}
+                <span class="assigned">Assigned to {{ room.assigned_agent }}</span>
+            {% endif %}
+            <div class="meta">
+                {% if room.last_message %}
+                    🗨️ {{ room.last_message|truncatechars:40 }} <br />
+                    ⏰ {{ room.last_timestamp }}
+                {% else %}
+                    <em>No messages yet</em>
+                {% endif %}
+            </div>
+        </li>
+    {% endfor %}
+    
+    </ul>
+</body>
+</html>

@@ -1,10 +1,10 @@
 from django.contrib import admin
 from .models import ChatRoom, Message
 
+# @admin.register(ChatRoom)
 class ChatRoomAdmin(admin.ModelAdmin):
-    list_display = ('name', 'created_by', 'created_at')
-    search_fields = ('name', 'created_by__username')
-    ordering = ('created_at',)
+    list_display = ['room_id', 'created_at', 'assigned_agent', 'is_active']
+
 
 class MessageAdmin(admin.ModelAdmin):
     list_display = ('room', 'user', 'content', 'timestamp')

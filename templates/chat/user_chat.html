@@ -1,0 +1,96 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Support Chat</title>
+    <style>
+        #chat-box {
+            border: 1px solid #000;
+            height: 300px;
+            overflow-y: auto;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .message {
+            margin: 5px 0;
+            max-width: 70%;
+            padding: 8px 12px;
+            border-radius: 10px;
+            clear: both;
+        }
+
+        .user {
+            background-color: #d0e6ff;
+            color: black;
+            align-self: flex-end;
+            text-align: right;
+        }
+
+        .agent {
+            background-color: #e2ffe2;
+            color: black;
+            align-self: flex-start;
+            text-align: left;
+        }
+
+        .system {
+            text-align: center;
+            color: gray;
+            font-style: italic;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <h2>Welcome! You are connected to <span class="agent">Agent 007</span></h2>
+
+    <div id="chat-box"></div>
+
+    <input type="text" id="message-input" placeholder="Type your message..." />
+    <button onclick="sendMessage()">Send</button>
+
+    <script>
+        const roomId = "{{ room_id }}";
+        const currentUser = "User";
+        const socket = new WebSocket(`ws://${window.location.host}/ws/chat/${roomId}/`);
+        const chatBox = document.getElementById("chat-box");
+
+        function appendMessage(sender, message, className = "") {
+            const div = document.createElement("div");
+            div.classList.add("message", className);
+            div.innerHTML = `<strong>${sender}:</strong> ${message}`;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        socket.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+            const sender = data.sender;
+            const message = data.message;
+
+            // Prevent duplicate message if it's from self
+            if (sender === currentUser) return;
+
+            const className = sender === "Agent" ? "agent" : "user";
+            appendMessage(sender, message, className);
+        }
+
+        socket.onclose = function(e) {
+            appendMessage("System", "Connection closed. Please refresh.", "system");
+        }
+
+        function sendMessage() {
+            const input = document.getElementById("message-input");
+            const message = input.value.trim();
+            if (message !== "") {
+                socket.send(JSON.stringify({ 'message': message, 'sender': currentUser }));
+                appendMessage("You", message, "user");
+                input.value = "";
+            }
+        }
+    </script>
+</body>
+</html>
