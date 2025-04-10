@@ -69,6 +69,33 @@
             20% { opacity: 1; }
             100% { opacity: 0.2; }
         }
+        .file-preview img {
+            max-width: 100%;
+            border-radius: 8px;
+            margin-top: 5px;
+        }
+        .file-preview a {
+            color: #2196F3;
+            text-decoration: none;
+        }
+        #input-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #file-input {
+            display: none; /* Hide the default file input */
+        }
+        #attach-button {
+            background-color: #f0f0f0;
+            border: 1px solid #ccc;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #attach-button:hover {
+            background-color: #e0e0e0;
+        }
     </style>
 </head>
 <body>
@@ -76,8 +103,13 @@
     <div id="chat-box">
         <div id="typing-indicator"></div>
     </div>
-    <input type="text" id="message-input" placeholder="Type your message..." oninput="notifyTyping()" />
-    <button onclick="sendMessage()">Send</button>
+    <div id="input-container">
+        <input type="text" id="message-input" placeholder="Type your message..." oninput="notifyTyping()" />
+        <label id="attach-button" for="file-input">📎 Attach File</label>
+        <input type="file" id="file-input" />
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
     <script>
         const roomId = "{{ room_id }}"; // Django se dynamic value
         const currentUser = "User";
@@ -85,6 +117,7 @@
         const chatBox = document.getElementById("chat-box");
         const typingIndicator = document.getElementById("typing-indicator");
         const sentMessages = {};
+
         function getTicks(status) {
             switch (status) {
                 case "sent": return '<span class="tick">✓</span>';
@@ -93,16 +126,28 @@
                 default: return "";
             }
         }
-        function appendMessage(sender, message, className, messageId, status = "sent") {
+
+        function appendMessage(sender, message, fileUrl, fileName, className, messageId, status = "sent") {
             const div = document.createElement("div");
             div.classList.add("message", className);
             div.id = `msg-${messageId}`;
             const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const ticks = (sender === currentUser) ? getTicks(status) : "";
-            div.innerHTML = `<strong>${sender}:</strong> ${message}<span class="timestamp">${time} ${ticks}</span>`;
+
+            let content = message ? `<strong>${sender}:</strong> ${message}` : `<strong>${sender}:</strong>`;
+            if (fileUrl) {
+                const isImage = fileName.match(/\.(jpg|jpeg|png|gif)$/i);
+                content += `<div class="file-preview">${
+                    isImage
+                        ? `<img src="${fileUrl}" alt="${fileName}" />`
+                        : `<a href="${fileUrl}" target="_blank">${fileName}</a>`
+                }</div>`;
+            }
+            div.innerHTML = `${content}<span class="timestamp">${time} ${ticks}</span>`;
             chatBox.insertBefore(div, typingIndicator);
             chatBox.scrollTop = chatBox.scrollHeight;
         }
+
         function updateMessageStatus(messageId, status) {
             const messageDiv = document.getElementById(`msg-${messageId}`);
             if (messageDiv) {
@@ -111,9 +156,11 @@
                 messageDiv.innerHTML = `${parts}<span class="timestamp">${time} ${getTicks(status)}</span>`;
             }
         }
+
         socket.onmessage = function(e) {
             const data = JSON.parse(e.data);
             console.log("Received:", data);
+
             if (data.typing !== undefined) {
                 if (data.typing && data.sender !== currentUser) {
                     typingIndicator.innerHTML = `<strong>${data.sender}:</strong> typing<span class="dot-one">.</span><span class="dot-two">.</span><span class="dot-three">.</span>`;
@@ -125,35 +172,82 @@
                 chatBox.scrollTop = chatBox.scrollHeight;
                 return;
             }
+
             if (data.status && data.message_id && sentMessages[data.message_id]) {
                 updateMessageStatus(data.message_id, data.status);
                 return;
             }
+
             const sender = data.sender;
             const message = data.message;
             const messageId = data.message_id;
-            if (message && sender !== currentUser) {
-                appendMessage(sender, message, "agent", messageId, "delivered");
+            const fileUrl = data.file_url;
+            const fileName = data.file_name;
+
+            if ((message || fileUrl) && sender !== currentUser) {
+                appendMessage(sender, message, fileUrl, fileName, "agent", messageId, "delivered");
                 socket.send(JSON.stringify({ status: "seen", message_id: messageId, sender: currentUser }));
             }
         };
+
         socket.onclose = function() {
-            appendMessage("System", "Connection closed. Please refresh.", "system", `sys-${Date.now()}`);
+            appendMessage("System", "Connection closed. Please refresh.", null, null, "system", `sys-${Date.now()}`);
         };
+
         socket.onerror = function() {
-            appendMessage("System", "WebSocket error occurred.", "system", `sys-${Date.now()}`);
+            appendMessage("System", "WebSocket error occurred.", null, null, "system", `sys-${Date.now()}`);
         };
-        function sendMessage() {
+
+        async function sendMessage() {
             const input = document.getElementById("message-input");
+            const fileInput = document.getElementById("file-input");
             const message = input.value.trim();
-            if (message) {
-                const messageId = crypto.randomUUID();
+            const file = fileInput.files[0];
+            const messageId = crypto.randomUUID();
+
+            if (file) {
+                // Upload file to API
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    const response = await fetch('upload-file/', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        // Send message with file URL via WebSocket
+                        socket.send(JSON.stringify({
+                            message: message,
+                            file_url: result.file_url,
+                            file_name: result.file_name,
+                            sender: currentUser,
+                            message_id: messageId
+                        }));
+                        appendMessage(currentUser, message, result.file_url, result.file_name, "user", messageId, "sent");
+                        sentMessages[messageId] = true;
+                    } else {
+                        console.error('File upload failed:', result.error);
+                        appendMessage("System", "Failed to upload file.", null, null, "system", `sys-${Date.now()}`);
+                    }
+                } catch (error) {
+                    console.error('Error uploading file:', error);
+                    appendMessage("System", "Error uploading file.", null, null, "system", `sys-${Date.now()}`);
+                }
+            } else if (message) {
+                // Send text-only message
                 socket.send(JSON.stringify({ message, sender: currentUser, message_id: messageId }));
-                appendMessage(currentUser, message, "user", messageId, "sent");
+                appendMessage(currentUser, message, null, null, "user", messageId, "sent");
                 sentMessages[messageId] = true;
-                input.value = "";
             }
+
+            // Reset inputs
+            input.value = "";
+            fileInput.value = "";
         }
+
         let typingTimeout;
         function notifyTyping() {
             const input = document.getElementById("message-input");
@@ -165,15 +259,10 @@
                 }, 1000);
             }
         }
+
         document.getElementById("message-input").addEventListener("keyup", function(event) {
             if (event.key === "Enter") sendMessage();
         });
     </script>
 </body>
 </html>
-
-
-
-
-
-
