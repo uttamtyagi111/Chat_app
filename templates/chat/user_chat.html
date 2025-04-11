@@ -11,7 +11,21 @@
             margin-bottom: 10px;
             display: flex;
             flex-direction: column;
+            background-color: rgba(255, 255, 255, 0.3); /* Transparent to show logo */
+            position: relative; /* Ensure proper stacking */
         }
+
+        #chat-box-logo {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50%; /* Scales logo to fit */
+            opacity: 0.4; /* Clear logo visibility */
+            z-index: -1; /* Places logo behind content */
+            pointer-events: none; /* Prevents logo from blocking interactions */
+        }
+
         .message {
             margin: 5px 0;
             max-width: 70%;
@@ -86,28 +100,97 @@
         #file-input {
             display: none; /* Hide the default file input */
         }
-        #attach-button {
+        #attach-button, #emoji-button {
             background-color: #f0f0f0;
             border: 1px solid #ccc;
             padding: 5px 10px;
             border-radius: 4px;
             cursor: pointer;
         }
-        #attach-button:hover {
+        #attach-button:hover, #emoji-button:hover {
             background-color: #e0e0e0;
         }
+        
+        /* New styles for emoji picker and file preview */
+        #emoji-picker {
+            position: absolute;
+            bottom: 80px;
+            right: 20px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+            padding: 10px;
+            display: none;
+            z-index: 100;
+        }
+        #emoji-picker .emoji {
+            cursor: pointer;
+            font-size: 20px;
+            padding: 5px;
+            margin: 2px;
+            display: inline-block;
+        }
+        #emoji-picker .emoji:hover {
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        #file-preview-container {
+            margin-top: 10px;
+            display: none;
+        }
+        #file-preview-box {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        #file-preview-name {
+            max-width: 80%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        #remove-file {
+            cursor: pointer;
+            color: #ff4d4d;
+            font-weight: bold;
+            padding: 2px 6px;
+        }
     </style>
+    <!-- Add emoji-picker-element for better emoji selection -->
+    <script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js" type="module"></script>
 </head>
 <body>
     <h2>Welcome! You are connected to <span class="agent">Agent 007</span></h2>
     <div id="chat-box">
+        <img id="chat-box-logo" src="https://emailbulkshoot.s3.ap-southeast-2.amazonaws.com/assests+for+Email+Automation/Techserve%404x.png" alt="Techserve Logo" onload="console.log('Logo loaded successfully')" onerror="console.error('Failed to load logo')"/>
         <div id="typing-indicator"></div>
     </div>
+    
+    <!-- File preview container -->
+    <div id="file-preview-container">
+        <div id="file-preview-box">
+            <span id="file-preview-name"></span>
+            <span id="remove-file">✕</span>
+        </div>
+    </div>
+    
     <div id="input-container">
         <input type="text" id="message-input" placeholder="Type your message..." oninput="notifyTyping()" />
         <label id="attach-button" for="file-input">📎 Attach File</label>
-        <input type="file" id="file-input" />
+        <input type="file" id="file-input" onchange="handleFileSelection()"/>
+        <span id="emoji-button" onclick="toggleEmojiPicker()">😊</span>
         <button onclick="sendMessage()">Send</button>
+    </div>
+    
+    <!-- Emoji picker -->
+    <div id="emoji-picker">
+        <emoji-picker></emoji-picker>
     </div>
 
     <script>
@@ -117,6 +200,49 @@
         const chatBox = document.getElementById("chat-box");
         const typingIndicator = document.getElementById("typing-indicator");
         const sentMessages = {};
+        
+        // Emoji picker functionality
+        function toggleEmojiPicker() {
+            const emojiPicker = document.getElementById("emoji-picker");
+            emojiPicker.style.display = emojiPicker.style.display === "block" ? "none" : "block";
+        }
+        
+        // Handle emoji selection
+        document.querySelector('emoji-picker').addEventListener('emoji-click', event => {
+            const messageInput = document.getElementById("message-input");
+            messageInput.value += event.detail.unicode;
+            document.getElementById("emoji-picker").style.display = "none";
+        });
+        
+        // Hide emoji picker when clicking outside
+        document.addEventListener('click', function(event) {
+            const emojiPicker = document.getElementById("emoji-picker");
+            const emojiButton = document.getElementById("emoji-button");
+            if (emojiPicker.style.display === "block" && event.target !== emojiButton && !emojiPicker.contains(event.target)) {
+                emojiPicker.style.display = "none";
+            }
+        });
+        
+        // File preview functionality
+        function handleFileSelection() {
+            const fileInput = document.getElementById("file-input");
+            const previewContainer = document.getElementById("file-preview-container");
+            const previewName = document.getElementById("file-preview-name");
+            
+            if (fileInput.files.length > 0) {
+                const file = fileInput.files[0];
+                previewName.textContent = file.name;
+                previewContainer.style.display = "block";
+            } else {
+                previewContainer.style.display = "none";
+            }
+        }
+        
+        // Remove selected file
+        document.getElementById("remove-file").addEventListener("click", function() {
+            document.getElementById("file-input").value = "";
+            document.getElementById("file-preview-container").style.display = "none";
+        });
 
         function getTicks(status) {
             switch (status) {
@@ -246,6 +372,7 @@
             // Reset inputs
             input.value = "";
             fileInput.value = "";
+            document.getElementById("file-preview-container").style.display = "none";
         }
 
         let typingTimeout;
