@@ -1,5 +1,6 @@
-import random
-import string
+import uuid
+import base64
 
-def generate_room_id(length=8):
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+def generate_id():
+    uid = uuid.uuid4()
+    return base64.urlsafe_b64encode(uid.bytes).rstrip(b'=').decode('ascii')

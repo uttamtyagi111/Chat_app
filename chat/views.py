@@ -10,10 +10,18 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.conf import settings
-print(f"DEBUG: AWS_STORAGE_BUCKET_NAME = {settings.AWS_STORAGE_BUCKET_NAME}")
+
 logger = logging.getLogger(__name__)
 
+
+
 class UploadFileAPIView(APIView):
+    """
+    API view to handle file uploads to AWS S3.  
+    """
+    permission_classes = []  # No authentication required for this view
+    authentication_classes = []  # No authentication required for this view
+    
     def post(self, request, *args, **kwargs):
         logger.info("Received POST request to upload file")
         print(f"DEBUG: AWS_STORAGE_BUCKET_NAME = {settings.AWS_STORAGE_BUCKET_NAME}")
@@ -78,14 +86,27 @@ def chat_view(request):
     room_id = request.session['room_id']
     return render(request, 'chat/chatroom.html', {'room_id': room_id})
 
-
-chat_rooms = {}  # in-memory room tracking
-
+from django.shortcuts import render
+from .models import ChatRoom
+from utils.random_id import generate_id # Assuming this function generates a unique ID
+chat_rooms = {}
 def user_chat(request):
-    # generate unique room_id for each anonymous user
-    room_id = str(uuid.uuid4())
-    chat_rooms[room_id] = {'assigned_agent': None}
+    # Generate a unique short room_id
+    while True:
+        room_id = generate_id()
+        if not ChatRoom.objects.filter(room_id=room_id).exists():
+            break
+
+    # Save to database with is_active = True
+    ChatRoom.objects.create(room_id=room_id, is_active=True)
+    chat_rooms[room_id] = {
+        'assigned_agent': None,
+        'last_message': None,
+        'last_timestamp': None,
+    }
+
     return render(request, 'chat/user_chat.html', {'room_id': room_id})
+
 
 def agent_dashboard(request):
     return render(request, 'chat/agent_dashboard.html', {'rooms': chat_rooms.items()})

@@ -1,19 +1,25 @@
 import json
-import uuid
 from channels.generic.websocket import AsyncWebsocketConsumer
 from utils.redis_client import redis_client
 from datetime import datetime
 from asgiref.sync import sync_to_async
-# from chat.models import Message, ChatRoom
+# from chat.models import  ChatRoom
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        from chat.models import ChatRoom
         self.room_name = self.scope['url_route']['kwargs']['room_id']
         self.room_group_name = f'chat_{self.room_name}'
+        await self.set_room_active_status(self.room_name, True)
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
     async def disconnect(self, close_code):
+        from chat.models import ChatRoom
+        # Mark room as inactive in the database
+        # This is a placeholder. You might want to set this in the database or Redis.
+        # room = await sync_to_async(ChatRoom.objects.get)(room_id=self.room_name)
+        await self.set_room_active_status(self.room_name, False)
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
     async def receive(self, text_data):
@@ -53,10 +59,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }
             )
             return
-
+        from utils.random_id import generate_id # Assuming this function generates a unique ID
+        
         # Sending new message (text or file URL)
         if data.get('message') or data.get('file_url'):
-            message_id = data.get("message_id") or str(uuid.uuid4())
+            message_id = data.get("message_id") or generate_id()
             timestamp = datetime.utcnow().isoformat()
             sender = data.get('sender', 'User')
             message = data.get('message', '')
@@ -123,3 +130,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'sender': event['sender'],
             'timestamp': event['timestamp']
         }))
+        
+        
+    # ------------------------
+    # DB UPDATER FUNCTION
+    # ------------------------
+    # from chat.models import ChatRoom
+    @sync_to_async
+    def set_room_active_status(self, room_id, status: bool):
+        from chat.models import ChatRoom
+        try:
+            room = ChatRoom.objects.get(room_id=room_id)
+            room.is_active = status
+            room.save()
+        except ChatRoom.DoesNotExist:
+            pass

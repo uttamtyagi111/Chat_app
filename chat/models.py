@@ -1,22 +1,15 @@
 from django.db import models
 from django.contrib.auth.models import User
-import uuid
-
 from django.db import models
-from utils.random_id import generate_room_id
+
 
 class ChatRoom(models.Model):
-    room_id = models.CharField(
-        max_length=255,
-        unique=True,
-        default=generate_room_id,
-        editable=False
-    )
+    id = models.AutoField(primary_key=True)
+    room_id = models.CharField(max_length=30, unique=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=False)
     assigned_agent = models.ForeignKey('auth.User', null=True, blank=True, on_delete=models.SET_NULL)
-
-
+    
     def __str__(self):
         return f"Room {self.room_id} - Agent: {self.assigned_agent or 'Unassigned'}"
 
