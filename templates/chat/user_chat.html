@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html>
 <head>
@@ -195,7 +196,7 @@
 
     <script>
         const roomId = "{{ room_id }}"; // Django se dynamic value
-        const currentUser = "User";
+        const currentUser = "User"; // Adjust if dynamic (e.g., "{{ user.username }}")
         const socket = new WebSocket(`ws://${window.location.host}/ws/chat/${roomId}/`);
         const chatBox = document.getElementById("chat-box");
         const typingIndicator = document.getElementById("typing-indicator");
@@ -212,6 +213,7 @@
             const messageInput = document.getElementById("message-input");
             messageInput.value += event.detail.unicode;
             document.getElementById("emoji-picker").style.display = "none";
+            notifyTyping(); // Trigger typing event after emoji insert
         });
         
         // Hide emoji picker when clicking outside
@@ -287,16 +289,9 @@
             const data = JSON.parse(e.data);
             console.log("Received:", data);
 
+            // Ignore typing events on user side
             if (data.typing !== undefined) {
-                if (data.typing && data.sender !== currentUser) {
-                    typingIndicator.innerHTML = `<strong>${data.sender}:</strong> typing<span class="dot-one">.</span><span class="dot-two">.</span><span class="dot-three">.</span>`;
-                    typingIndicator.style.display = "block";
-                } else {
-                    typingIndicator.style.display = "none";
-                    typingIndicator.innerHTML = "";
-                }
-                chatBox.scrollTop = chatBox.scrollHeight;
-                return;
+                return; // Do not show typing indicator for user
             }
 
             if (data.status && data.message_id && sentMessages[data.message_id]) {
@@ -373,18 +368,26 @@
             input.value = "";
             fileInput.value = "";
             document.getElementById("file-preview-container").style.display = "none";
+            notifyTyping(); // Send typing: false after sending message
         }
 
         let typingTimeout;
         function notifyTyping() {
             const input = document.getElementById("message-input");
-            if (input.value.trim()) {
-                socket.send(JSON.stringify({ typing: true, sender: currentUser }));
-                clearTimeout(typingTimeout);
-                typingTimeout = setTimeout(() => {
-                    socket.send(JSON.stringify({ typing: false, sender: currentUser }));
-                }, 1000);
-            }
+            const content = input.value.trim();
+            socket.send(JSON.stringify({
+                typing: content.length > 0,
+                content: content, // Send the typed message content
+                sender: currentUser
+            }));
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                socket.send(JSON.stringify({
+                    typing: false,
+                    content: "",
+                    sender: currentUser
+                }));
+            }, 1000);
         }
 
         document.getElementById("message-input").addEventListener("keyup", function(event) {

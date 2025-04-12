@@ -3,22 +3,20 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from utils.redis_client import redis_client
 from datetime import datetime
 from asgiref.sync import sync_to_async
-# from chat.models import  ChatRoom
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         from chat.models import ChatRoom
         self.room_name = self.scope['url_route']['kwargs']['room_id']
         self.room_group_name = f'chat_{self.room_name}'
+        print("Connecting:", self.scope['user'], "to room:", self.room_group_name)
         await self.set_room_active_status(self.room_name, True)
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
     async def disconnect(self, close_code):
         from chat.models import ChatRoom
-        # Mark room as inactive in the database
-        # This is a placeholder. You might want to set this in the database or Redis.
-        # room = await sync_to_async(ChatRoom.objects.get)(room_id=self.room_name)
+        print("Disconnecting:", self.scope['user'])
         await self.set_room_active_status(self.room_name, False)
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
@@ -26,29 +24,27 @@ class ChatConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         print("Received on server:", data)
 
-        # Typing indicator
-        if data.get('typing') is not None:
+        if 'typing' in data and 'content' in data and data.get('sender') != 'agent':
+            print("Broadcasting typing to group:", self.room_group_name, data)
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
                     'type': 'typing_status',
                     'typing': data['typing'],
+                    'content': data['content'],
                     'sender': data['sender']
                 }
             )
             return
 
-        # Seen status
         if data.get('status') == 'seen' and data.get('message_id'):
             message_id = data['message_id']
             sender = data.get('sender', 'unknown')
             timestamp = datetime.utcnow().isoformat()
-
             redis_client.hset(f'message:{message_id}', mapping={
                 "seen": "true",
                 "seen_at": timestamp
             })
-
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
@@ -59,9 +55,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }
             )
             return
-        from utils.random_id import generate_id # Assuming this function generates a unique ID
+
+        from utils.random_id import generate_id
         
-        # Sending new message (text or file URL)
         if data.get('message') or data.get('file_url'):
             message_id = data.get("message_id") or generate_id()
             timestamp = datetime.utcnow().isoformat()
@@ -70,18 +66,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             file_url = data.get('file_url')
             file_name = data.get('file_name')
 
-            # # Save to database
-            # room = await sync_to_async(ChatRoom.objects.get)(id=self.room_name)
-            # user = self.scope['user'] if self.scope['user'].is_authenticated else None
-            # await sync_to_async(Message.objects.create)(
-            #     room=room,
-            #     user=user,
-            #     content=message,
-            #     file_url=file_url,
-            #     file_name=file_name
-            # )
-
-            # Store in Redis
             redis_client.hset(f'message:{message_id}', mapping={
                 "sender": sender,
                 "message": message,
@@ -92,7 +76,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 "timestamp": timestamp
             })
 
-            # Broadcast to group
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
@@ -107,6 +90,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
 
     async def chat_message(self, event):
+        print("Sending chat message to client:", event)
         await self.send(text_data=json.dumps({
             'message': event['message'],
             'sender': event['sender'],
@@ -118,12 +102,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }))
 
     async def typing_status(self, event):
+        print("Sending typing to client:", self.scope['user'], event)
         await self.send(text_data=json.dumps({
             'typing': event['typing'],
+            'content': event.get('content', ''),
             'sender': event['sender']
         }))
 
     async def message_seen(self, event):
+        print("Sending seen status to client:", event)
         await self.send(text_data=json.dumps({
             'message_id': event['message_id'],
             'status': 'seen',
@@ -131,11 +118,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'timestamp': event['timestamp']
         }))
         
-        
-    # ------------------------
-    # DB UPDATER FUNCTION
-    # ------------------------
-    # from chat.models import ChatRoom
     @sync_to_async
     def set_room_active_status(self, room_id, status: bool):
         from chat.models import ChatRoom

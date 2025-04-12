@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html>
 <head>
@@ -11,8 +12,8 @@
             margin-bottom: 10px;
             display: flex;
             flex-direction: column;
-            background-color: rgba(255, 255, 255, 0.3); /* More transparent to show logo better */
-            position: relative; /* Ensure proper stacking */
+            background-color: rgba(255, 255, 255, 0.3);
+            position: relative;
         }
 
         #chat-box-logo {
@@ -20,10 +21,10 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 50%; /* Scales logo to fit */
-            opacity: 0.4; /* Increased for clearer logo visibility */
-            z-index: -1; /* Places logo behind content */
-            pointer-events: none; /* Prevents logo from blocking interactions */
+            width: 50%;
+            opacity: 0.4;
+            z-index: -1;
+            pointer-events: none;
         }
 
         .message {
@@ -36,12 +37,12 @@
             position: relative;
         }
         .user {
-            background-color: #D0E6FF; /* Light blue for user messages */
+            background-color: #D0E6FF;
             align-self: flex-start;
             text-align: left;
         }
         .agent {
-            background-color: #E2FFE2; /* Light green for agent messages */
+            background-color: #E2FFE2;
             align-self: flex-end;
             text-align: right;
         }
@@ -50,6 +51,14 @@
             color: gray;
             font-style: italic;
             width: 100%;
+        }
+        .preview {
+            background-color: #D0E6FF;
+            align-self: flex-start;
+            text-align: left;
+            opacity: 0.7; /* Faded effect for preview */
+            font-style: italic; /* Differentiate from sent messages */
+            border: 1px dashed #999; /* Optional: dashed border */
         }
         .timestamp {
             display: block;
@@ -65,23 +74,7 @@
             color: #2196F3;
         }
         #typing-indicator {
-            font-size: 14px;
-            font-style: italic;
-            color: gray;
-            margin-top: 5px;
-            height: 20px;
-            display: none;
-        }
-        .dot-one, .dot-two, .dot-three {
-            animation: blink 1.4s infinite both;
-            font-weight: bold;
-        }
-        .dot-two { animation-delay: 0.2s; }
-        .dot-three { animation-delay: 0.4s; }
-        @keyframes blink {
-            0% { opacity: 0.2; }
-            20% { opacity: 1; }
-            100% { opacity: 0.2; }
+            display: none; /* Hidden since preview is in chat-box */
         }
         .file-preview img {
             max-width: 100%;
@@ -98,7 +91,7 @@
             gap: 10px;
         }
         #file-input {
-            display: none; /* Hide the default file input */
+            display: none;
         }
         #attach-button, #emoji-button {
             background-color: #f0f0f0;
@@ -110,8 +103,6 @@
         #attach-button:hover, #emoji-button:hover {
             background-color: #e0e0e0;
         }
-        
-        /* Emoji picker and file preview styles */
         #emoji-picker {
             position: absolute;
             bottom: 80px;
@@ -162,7 +153,6 @@
             padding: 2px 6px;
         }
     </style>
-    <!-- Add emoji-picker-element for better emoji selection -->
     <script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js" type="module"></script>
 </head>
 <body>
@@ -172,7 +162,6 @@
         <div id="typing-indicator"></div>
     </div>
     
-    <!-- File preview container -->
     <div id="file-preview-container">
         <div id="file-preview-box">
             <span id="file-preview-name"></span>
@@ -181,40 +170,37 @@
     </div>
     
     <div id="input-container">
-        <input type="text" id="message-input" placeholder="Type your reply..." oninput="notifyTyping()" />
+        <input type="text" id="message-input" placeholder="Type your reply..." />
         <label id="attach-button" for="file-input">📎 Attach File</label>
         <input type="file" id="file-input" onchange="handleFileSelection()"/>
         <span id="emoji-button" onclick="toggleEmojiPicker()">😊</span>
         <button onclick="sendMessage()">Send</button>
     </div>
     
-    <!-- Emoji picker -->
     <div id="emoji-picker">
         <emoji-picker></emoji-picker>
     </div>
 
     <script>
         const roomId = "{{ room_id }}";
-        const currentUser = "Agent";
+        const currentUser = "Agent"; // Or "{{ user.username }}" if authenticated
         const socket = new WebSocket(`ws://${window.location.host}/ws/chat/${roomId}/`);
         const chatBox = document.getElementById("chat-box");
         const typingIndicator = document.getElementById("typing-indicator");
         const sentMessages = {};
-        
-        // Emoji picker functionality
+        let previewMessage = null; // Track the preview message element
+
         function toggleEmojiPicker() {
             const emojiPicker = document.getElementById("emoji-picker");
             emojiPicker.style.display = emojiPicker.style.display === "block" ? "none" : "block";
         }
         
-        // Handle emoji selection
         document.querySelector('emoji-picker').addEventListener('emoji-click', event => {
             const messageInput = document.getElementById("message-input");
             messageInput.value += event.detail.unicode;
             document.getElementById("emoji-picker").style.display = "none";
         });
         
-        // Hide emoji picker when clicking outside
         document.addEventListener('click', function(event) {
             const emojiPicker = document.getElementById("emoji-picker");
             const emojiButton = document.getElementById("emoji-button");
@@ -223,7 +209,6 @@
             }
         });
         
-        // File preview functionality
         function handleFileSelection() {
             const fileInput = document.getElementById("file-input");
             const previewContainer = document.getElementById("file-preview-container");
@@ -238,7 +223,6 @@
             }
         }
         
-        // Remove selected file
         document.getElementById("remove-file").addEventListener("click", function() {
             document.getElementById("file-input").value = "";
             document.getElementById("file-preview-container").style.display = "none";
@@ -283,19 +267,38 @@
             }
         }
 
+        function appendTypingPreview(sender, content) {
+            // Remove existing preview if it exists
+            if (previewMessage) {
+                previewMessage.remove();
+                previewMessage = null;
+            }
+            if (content) {
+                const div = document.createElement("div");
+                div.classList.add("message", "preview");
+                div.id = "typing-preview";
+                div.textContent = `${sender}: ${content}`;
+                chatBox.insertBefore(div, typingIndicator);
+                previewMessage = div;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+        }
+
         socket.onmessage = function(e) {
             const data = JSON.parse(e.data);
-            console.log("Received:", data);
+            console.log("Received in agent:", data);
             
             if (data.typing !== undefined) {
-                if (data.typing && data.sender !== currentUser) {
-                    typingIndicator.innerHTML = `<strong>${data.sender}:</strong> typing<span class="dot-one">.</span><span class="dot-two">.</span><span class="dot-three">.</span>`;
-                    typingIndicator.style.display = "block";
+                if (data.typing && data.content && data.sender !== currentUser) {
+                    console.log("Showing typing preview:", data.content);
+                    appendTypingPreview(data.sender, data.content);
                 } else {
-                    typingIndicator.style.display = "none";
-                    typingIndicator.innerHTML = "";
+                    console.log("Removing typing preview");
+                    if (previewMessage) {
+                        previewMessage.remove();
+                        previewMessage = null;
+                    }
                 }
-                chatBox.scrollTop = chatBox.scrollHeight;
                 return;
             }
             
@@ -311,6 +314,11 @@
             const fileName = data.file_name;
             
             if ((message || fileUrl) && sender !== currentUser) {
+                // Remove preview when actual message arrives
+                if (previewMessage) {
+                    previewMessage.remove();
+                    previewMessage = null;
+                }
                 appendMessage(sender, message, fileUrl, fileName, "user", messageId, "delivered");
                 socket.send(JSON.stringify({ status: "seen", message_id: messageId, sender: currentUser }));
             }
@@ -332,7 +340,6 @@
             const messageId = crypto.randomUUID();
 
             if (file) {
-                // Upload file to API
                 const formData = new FormData();
                 formData.append('file', file);
 
@@ -344,7 +351,6 @@
                     const result = await response.json();
 
                     if (response.ok) {
-                        // Send message with file URL via WebSocket
                         socket.send(JSON.stringify({
                             message: message,
                             file_url: result.file_url,
@@ -363,28 +369,14 @@
                     appendMessage("System", "Error uploading file.", null, null, "system", `sys-${Date.now()}`);
                 }
             } else if (message) {
-                // Send text-only message
                 socket.send(JSON.stringify({ message, sender: currentUser, message_id: messageId }));
                 appendMessage(currentUser, message, null, null, "agent", messageId, "sent");
                 sentMessages[messageId] = true;
             }
 
-            // Reset inputs
             input.value = "";
             fileInput.value = "";
             document.getElementById("file-preview-container").style.display = "none";
-        }
-
-        let typingTimeout;
-        function notifyTyping() {
-            const input = document.getElementById("message-input");
-            if (input.value.trim()) {
-                socket.send(JSON.stringify({ typing: true, sender: currentUser }));
-                clearTimeout(typingTimeout);
-                typingTimeout = setTimeout(() => {
-                    socket.send(JSON.stringify({ typing: false, sender: currentUser }));
-                }, 1000);
-            }
         }
 
         document.getElementById("message-input").addEventListener("keyup", function(event) {
