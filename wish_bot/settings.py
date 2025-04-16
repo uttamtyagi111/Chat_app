@@ -26,9 +26,16 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "fallback-secret-key")
 
 
 DEBUG = True
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "wish-bot.onrender.com",
+]
 
 CSRF_COOKIE_SECURE = True 
+CSRF_TRUSTED_ORIGINS = [
+    "https://wish-bot.onrender.com",
+]
 
 
 LOGIN_URL = '/accounts/login/'
