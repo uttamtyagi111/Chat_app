@@ -1,8 +1,10 @@
+from wish_bot.db import get_room_collection
+from wish_bot.db import get_chat_collection
+from datetime import datetime, timedelta
 from utils.redis_client import redis_client
-from django.shortcuts import render, redirect
-from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
-from django.contrib.auth.decorators import login_required
+from .models import ChatRoom
+from utils.random_id import generate_id 
 import logging
 import uuid
 import boto3
@@ -79,25 +81,20 @@ def index(request):
 def chat_view(request):
     if not request.session.get('room_id'):
         request.session['room_id'] = str(uuid.uuid4())
-        print("🎯 New Room ID assigned:", request.session['room_id'])  # Debug
+        print("🎯 New Room ID assigned:", request.session['room_id'])
     else:
         print("ℹ️ Existing Room ID:", request.session['room_id'])
 
     room_id = request.session['room_id']
     return render(request, 'chat/chatroom.html', {'room_id': room_id})
 
-from django.shortcuts import render
-from .models import ChatRoom
-from utils.random_id import generate_id # Assuming this function generates a unique ID
 chat_rooms = {}
 def user_chat(request):
-    # Generate a unique short room_id
     while True:
         room_id = generate_id()
         if not ChatRoom.objects.filter(room_id=room_id).exists():
             break
 
-    # Save to database with is_active = True
     ChatRoom.objects.create(room_id=room_id, is_active=True)
     chat_rooms[room_id] = {
         'assigned_agent': None,
@@ -112,7 +109,6 @@ def agent_dashboard(request):
     return render(request, 'chat/agent_dashboard.html', {'rooms': chat_rooms.items()})
 
 def agent_chat(request, room_id):
-    # mark agent as assigned
     if room_id in chat_rooms:
         chat_rooms[room_id]['assigned_agent'] = "Agent 007"  # replace with actual agent logic
     return render(request, 'chat/agent_chat.html', {'room_id': room_id})
@@ -132,3 +128,42 @@ def agent_dashboard(request):
     return render(request, 'chat/agent_dashboard.html', {'rooms': rooms})
 
 
+class ActiveRoomsAPIView(APIView):
+    def get(self, request):
+        collection = get_room_collection()
+        try:
+            active_rooms = list(collection.find({'is_active': True}))
+            for room in active_rooms:
+                room['_id'] = str(room['_id'])  # convert ObjectId to string if needed
+            return Response({'active_rooms': active_rooms}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+class ChatMessagesByDateAPIView(APIView):
+    def get(self, request):
+        room_id = request.GET.get('room_id')
+        date_str = request.GET.get('date')  # format: YYYY-MM-DD
+
+        if not room_id or not date_str:
+            return Response({'error': 'room_id and date are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            date = datetime.strptime(date_str, '%Y-%m-%d')
+            start_of_day = datetime(date.year, date.month, date.day)
+            end_of_day = start_of_day + timedelta(days=1)
+        except ValueError:
+            return Response({'error': 'Invalid date format. Use YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        collection = get_chat_collection()
+        query = {
+            'room_id': room_id,
+            'timestamp': {'$gte': start_of_day, '$lt': end_of_day}
+        }
+
+        messages = list(collection.find(query).sort('timestamp', 1))
+        for msg in messages:
+            msg['_id'] = str(msg['_id'])  # convert ObjectId to string if needed
+            msg['timestamp'] = msg['timestamp'].isoformat()
+
+        return Response({'messages': messages}, status=status.HTTP_200_OK)

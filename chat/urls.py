@@ -2,7 +2,7 @@ from django.urls import path
 from . import views
 from django.conf import settings
 from django.conf.urls.static import static
-from .views import UploadFileAPIView
+from .views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView
 
 urlpatterns = [
     # path('', views.index, name='index'),
@@ -14,6 +14,8 @@ urlpatterns = [
     path('agent-chat/<str:room_id>/', views.agent_chat, name='agent_chat'),
     path('user-chat/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
     path('agent-chat/<str:room_id>/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
+    path('active-rooms/', ActiveRoomsAPIView.as_view(), name='active-rooms'),
+    path('messages/', ChatMessagesByDateAPIView.as_view(), name='chat-messages-by-date'),
 ]
 if settings.DEBUG:
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
