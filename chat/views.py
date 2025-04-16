@@ -3,7 +3,6 @@ from wish_bot.db import get_chat_collection
 from datetime import datetime, timedelta
 from utils.redis_client import redis_client
 from django.shortcuts import render
-from .models import ChatRoom
 from utils.random_id import generate_id 
 import logging
 import uuid
@@ -88,31 +87,64 @@ def chat_view(request):
     room_id = request.session['room_id']
     return render(request, 'chat/chatroom.html', {'room_id': room_id})
 
+from wish_bot.db import get_room_collection
+from datetime import datetime
 chat_rooms = {}
 def user_chat(request):
-    while True:
+    room_id = generate_id()
+    room_collection = get_room_collection()
+
+    existing_room = room_collection.find_one({'room_id': room_id})
+    
+    while existing_room:
         room_id = generate_id()
-        if not ChatRoom.objects.filter(room_id=room_id).exists():
-            break
+        existing_room = room_collection.find_one({'room_id': room_id})
 
-    ChatRoom.objects.create(room_id=room_id, is_active=True)
-    chat_rooms[room_id] = {
+    room_collection.insert_one({
+        'room_id': room_id,
+        'is_active': True,
+        'created_at': datetime.now(),
         'assigned_agent': None,
-        'last_message': None,
-        'last_timestamp': None,
-    }
-
+        
+    })
+    
     return render(request, 'chat/user_chat.html', {'room_id': room_id})
 
+# from wish_bot.db import get_room_collection
+# from django.shortcuts import render
 
-def agent_dashboard(request):
-    return render(request, 'chat/agent_dashboard.html', {'rooms': chat_rooms.items()})
+# def agent_dashboard(request):
+#     # Get MongoDB room collection
+#     room_collection = get_room_collection()
+    
+#     # Fetch all rooms from MongoDB
+#     all_rooms = room_collection.find()
+    
+#     # Convert MongoDB cursor to a list for template rendering
+#     rooms_list = list(all_rooms)
+    
+#     return render(request, 'chat/agent_dashboard.html', {'rooms': rooms_list})
+class ActiveRoomsAPIView(APIView):
+    def get(self, request):
+        collection = get_room_collection()
+        try:
+            active_rooms = list(collection.find({'is_active': True}))
+            for room in active_rooms:
+                room['_id'] = str(room['_id'])  # convert ObjectId to string if needed
+            return Response({'active_rooms': active_rooms}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
 
 def agent_chat(request, room_id):
-    if room_id in chat_rooms:
-        chat_rooms[room_id]['assigned_agent'] = "Agent 007"  # replace with actual agent logic
+    room_collection = get_room_collection()
+    room = room_collection.find_one({'room_id': room_id})
+    if room:
+        room_collection.update_one(
+            {'room_id': room_id},
+            {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with actual agent logic
+        )
     return render(request, 'chat/agent_chat.html', {'room_id': room_id})
-
 
 def agent_dashboard(request):
     rooms = []
@@ -128,17 +160,6 @@ def agent_dashboard(request):
     return render(request, 'chat/agent_dashboard.html', {'rooms': rooms})
 
 
-class ActiveRoomsAPIView(APIView):
-    def get(self, request):
-        collection = get_room_collection()
-        try:
-            active_rooms = list(collection.find({'is_active': True}))
-            for room in active_rooms:
-                room['_id'] = str(room['_id'])  # convert ObjectId to string if needed
-            return Response({'active_rooms': active_rooms}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
 
 class ChatMessagesByDateAPIView(APIView):
     def get(self, request):
