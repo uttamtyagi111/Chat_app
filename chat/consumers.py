@@ -24,11 +24,25 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
+        # Initialize predefined messages state in Redis only for users
+        if self.user == 'anonymous':
+            self.predefined_messages = [
+                "Welcome to the chat room!",
+                "Great to see you! What's on your mind?",
+                "Keep the conversation going!"
+            ]
+            redis_key = f"predefined:{self.room_name}:{self.user}"
+            redis_client.set(redis_key, 0)  # Start with index 0
+
+            # Send the first predefined message
+            await self.send_predefined_message(0)
+
     async def disconnect(self, close_code):
         print(f"[DISCONNECT] {self.user} leaving {self.room_group_name}")
         if hasattr(self, 'room_name'):
             await self.set_room_active_status(self.room_name, False)
             redis_client.delete(f'typing:{self.room_name}:{self.user}')
+            redis_client.delete(f'predefined:{self.room_name}:{self.user}')
             await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
     async def receive(self, text_data):
@@ -141,6 +155,50 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'timestamp': timestamp.isoformat()
             }
         )
+
+        # Check and send next predefined message only if sender is not 'agent'
+        if sender != 'agent':
+            redis_key = f"predefined:{self.room_name}:{self.user}"
+            current_index = int(redis_client.get(redis_key) or 0)
+            next_index = current_index + 1
+            if next_index < len(self.predefined_messages):
+                redis_client.set(redis_key, next_index)
+                await self.send_predefined_message(next_index)
+
+    async def send_predefined_message(self, index):
+        collection = await sync_to_async(get_chat_collection)()
+        message = self.predefined_messages[index]
+        message_id = generate_id()
+        timestamp = datetime.utcnow()
+
+        doc = {
+            'message_id': message_id,
+            'room_id': self.room_name,
+            'sender': 'System',
+            'message': message,
+            'file_url': '',
+            'file_name': '',
+            'delivered': True,
+            'seen': False,
+            'timestamp': timestamp
+        }
+
+        insert_result = await sync_to_async(insert_with_timestamps)(collection, doc)
+        if insert_result.inserted_id:
+            print(f"[DB ✅] Predefined message inserted with ID: {insert_result.inserted_id}")
+        else:
+            print(f"[DB ❌] Predefined message insert failed for: {message_id}")
+
+        # Send predefined message only to the user's WebSocket connection
+        await self.send(text_data=json.dumps({
+            'message': message,
+            'sender': 'System',
+            'message_id': message_id,
+            'file_url': '',
+            'file_name': '',
+            'timestamp': timestamp.isoformat(),
+            'status': 'delivered'
+        }))
 
     async def chat_message(self, event):
         print(f"[SEND MESSAGE] {event}")
