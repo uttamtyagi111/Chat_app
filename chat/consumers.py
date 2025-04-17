@@ -17,15 +17,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.user = 'anonymous'  # Fixed user identity
         self.room_name = self.scope['url_route']['kwargs']['room_id']
         self.room_group_name = f'chat_{self.room_name}'
-
-        print(f"[CONNECT] {self.user} joined {self.room_group_name}")
+        
+        # Check if this connection is from an agent
+        query_string = self.scope.get('query_string', b'').decode()
+        self.is_agent = 'agent=true' in query_string
+        
+        print(f"[CONNECT] {self.user} joined {self.room_group_name}, is_agent: {self.is_agent}")
         await self.set_room_active_status(self.room_name, True)
 
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
-        # Initialize predefined messages state in Redis only for users
-        if self.user == 'anonymous':
+        # Initialize predefined messages state in Redis only for non-agent connections
+        if not self.is_agent:
             self.predefined_messages = [
                 "Welcome to the chat room!",
                 "Great to see you! What's on your mind?",
@@ -36,7 +40,40 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
             # Send the first predefined message
             await self.send_predefined_message(0)
-
+        else:
+            await self.send_chat_history()
+            
+    async def send_chat_history(self):
+        collection = await sync_to_async(get_chat_collection)()
+        
+        # Fetch messages for this room, sorted by timestamp
+        messages = await sync_to_async(lambda: list(
+            collection.find(
+                {'room_id': self.room_name},
+                {'_id': 0}  # Exclude MongoDB _id field
+            ).sort('timestamp', 1)  # Sort by timestamp ascending
+        ))()
+        
+        print(f"[HISTORY] Sending {len(messages)} messages to agent for room {self.room_name}")
+        
+        # Send each message to the agent
+        for msg in messages:
+            # Convert datetime to string for JSON serialization
+            if isinstance(msg.get('timestamp'), datetime):
+                msg['timestamp'] = msg['timestamp'].isoformat()
+            
+            # Send historical message
+            await self.send(text_data=json.dumps({
+                'message': msg.get('message', ''),
+                'sender': msg.get('sender', 'unknown'),
+                'message_id': msg.get('message_id', ''),
+                'file_url': msg.get('file_url', ''),
+                'file_name': msg.get('file_name', ''),
+                'timestamp': msg.get('timestamp', ''),
+                'status': 'history'  # Mark as historical message
+            }))
+            
+            
     async def disconnect(self, close_code):
         print(f"[DISCONNECT] {self.user} leaving {self.room_group_name}")
         if hasattr(self, 'room_name'):
@@ -157,7 +194,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         )
 
         # Check and send next predefined message only if sender is not 'agent'
-        if sender != 'agent':
+        if sender != 'agent' and not self.is_agent:
             redis_key = f"predefined:{self.room_name}:{self.user}"
             current_index = int(redis_client.get(redis_key) or 0)
             next_index = current_index + 1
@@ -166,6 +203,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 await self.send_predefined_message(next_index)
 
     async def send_predefined_message(self, index):
+        # Only proceed if this is not an agent connection
+        if hasattr(self, 'is_agent') and self.is_agent:
+            return
+            
         collection = await sync_to_async(get_chat_collection)()
         message = self.predefined_messages[index]
         message_id = generate_id()

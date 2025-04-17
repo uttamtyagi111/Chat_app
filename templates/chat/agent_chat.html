@@ -52,6 +52,11 @@
             font-style: italic;
             width: 100%;
         }
+        .system-message {
+            background-color: #e6e6e6; /* Light gray background to distinguish from agent messages */
+            font-style: italic;
+            /* Inherits right alignment from agent class */
+        }
         .preview {
             background-color: #D0E6FF;
             align-self: flex-start;
@@ -184,7 +189,7 @@
     <script>
         const roomId = "{{ room_id }}";
         const currentUser = "Agent"; // Or "{{ user.username }}" if authenticated
-        const socket = new WebSocket(`ws://${window.location.host}/ws/chat/${roomId}/`);
+        const socket = new WebSocket(`ws://${window.location.host}/ws/chat/${roomId}/?agent=true`);
         const chatBox = document.getElementById("chat-box");
         const typingIndicator = document.getElementById("typing-indicator");
         const sentMessages = {};
@@ -239,10 +244,22 @@
 
         function appendMessage(sender, message, fileUrl, fileName, className, messageId, status = "sent") {
             const div = document.createElement("div");
-            div.classList.add("message", className);
+            
+            // First determine the proper base class based on sender
+            if (sender === "System" || sender === currentUser) {
+                div.classList.add("message", "agent"); // This will align to right
+            } else {
+                div.classList.add("message", "user"); // This will align to left
+            }
+            
+            // Then add system-message class if it's a system message
+            if (sender === "System") {
+                div.classList.add("system-message");
+            }
+            
             div.id = `msg-${messageId}`;
             const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            const ticks = (sender === currentUser) ? getTicks(status) : "";
+            const ticks = (sender === currentUser || sender === "System") ? getTicks(status) : "";
             
             let content = message ? `<strong>${sender}:</strong> ${message}` : `<strong>${sender}:</strong>`;
             if (fileUrl) {
@@ -288,6 +305,7 @@
             const data = JSON.parse(e.data);
             console.log("Received in agent:", data);
             
+            // Handle typing status
             if (data.typing !== undefined) {
                 if (data.typing && data.content && data.sender !== currentUser) {
                     console.log("Showing typing preview:", data.content);
@@ -302,6 +320,7 @@
                 return;
             }
             
+            // Handle message status updates
             if (data.status && data.message_id && sentMessages[data.message_id]) {
                 updateMessageStatus(data.message_id, data.status);
                 return;
@@ -313,6 +332,14 @@
             const fileUrl = data.file_url;
             const fileName = data.file_name;
             
+            // Handle history messages
+            if (data.history === true) {
+                const status = data.seen ? "seen" : "delivered";
+                appendMessage(sender, message, fileUrl, fileName, "", messageId, status);
+                return;
+            }
+            
+            // Handle regular new messages
             if ((message || fileUrl) && sender !== currentUser) {
                 // Remove preview when actual message arrives
                 if (previewMessage) {
