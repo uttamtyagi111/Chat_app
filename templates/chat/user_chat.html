@@ -6,7 +6,7 @@
     <style>
         #chat-box {
             border: 1px solid #000;
-            height: 300px;
+            height: 430px;
             overflow-y: auto;
             padding: 10px;
             margin-bottom: 10px;
@@ -112,7 +112,7 @@
             background-color: #e0e0e0;
         }
         
-        /* New styles for emoji picker and file preview */
+        /* Styles for emoji picker and file preview */
         #emoji-picker {
             position: absolute;
             bottom: 80px;
@@ -162,6 +162,61 @@
             font-weight: bold;
             padding: 2px 6px;
         }
+        .user-info-form {
+            background-color: #f7f7f7;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+            margin: 5px 10px 5px 0; /* Reduced margin, align right */
+            padding: 10px;
+            width: 70%; /* Match message width */
+            max-width: 300px; /* Compact size */
+            align-self: flex-end; /* Align to right like user messages */
+            text-align: right; /* Right-align text */
+        }
+        
+        .form-group {
+            margin-bottom: 8px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 3px;
+            color: #333;
+            font-size: 12px; /* Smaller font */
+            text-align: left; /* Keep labels left-aligned for readability */
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 12px; /* Smaller input text */
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus {
+            border-color: #4a90e2;
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+        }
+        
+        .submit-btn {
+            background-color: #4a90e2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 12px;
+            font-size: 12px; /* Smaller button text */
+            cursor: pointer;
+            transition: background-color 0.3s;
+            float: right;
+        }
+        
+        .submit-btn:hover {
+            background-color: #3a80d2;
+        }
     </style>
     <!-- Add emoji-picker-element for better emoji selection -->
     <script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js" type="module"></script>
@@ -192,6 +247,10 @@
     <!-- Emoji picker -->
     <div id="emoji-picker">
         <emoji-picker></emoji-picker>
+    </div>
+
+    <div id="message-controls" class="message-controls">
+        <!-- Your input controls here -->
     </div>
 
     <script>
@@ -284,32 +343,128 @@
                 messageDiv.innerHTML = `${parts}<span class="timestamp">${time} ${getTicks(status)}</span>`;
             }
         }
-
-        socket.onmessage = function(e) {
-            const data = JSON.parse(e.data);
-            console.log("Received:", data);
-
-            // Ignore typing events on user side
-            if (data.typing !== undefined) {
-                return; // Do not show typing indicator for user
-            }
-
-            if (data.status && data.message_id && sentMessages[data.message_id]) {
-                updateMessageStatus(data.message_id, data.status);
+        
+        // Handle showing user info form
+        function showUserInfoForm() {
+            // Check if form already exists
+            if (document.getElementById('user-info-form')) {
                 return;
             }
 
-            const sender = data.sender;
-            const message = data.message;
-            const messageId = data.message_id;
-            const fileUrl = data.file_url;
-            const fileName = data.file_name;
-
-            if ((message || fileUrl) && sender !== currentUser) {
-                appendMessage(sender, message, fileUrl, fileName, "agent", messageId, "delivered");
-                socket.send(JSON.stringify({ status: "seen", message_id: messageId, sender: currentUser }));
+            // Hide normal message input area
+            const messageControls = document.getElementById('message-controls');
+            if (messageControls) {
+                messageControls.style.display = 'none';
+            } else {
+                console.warn('message-controls element not found');
             }
-        };
+
+            // Create user info form
+            const formDiv = document.createElement('div');
+            formDiv.id = 'user-info-form';
+            formDiv.className = 'user-info-form';
+            formDiv.innerHTML = `
+                <div class="form-group">
+                    <label for="name-input">Name:</label>
+                    <input type="text" id="name-input" placeholder="Enter your name" required>
+                </div>
+                <div class="form-group">
+                    <label for="email-input">Email:</label>
+                    <input type="email" id="email-input" placeholder="Enter your email" required>
+                </div>
+                <button id="submit-info-btn" class="submit-btn">Submit</button>
+            `;
+
+            // Append form inside chat-box before typing indicator
+            chatBox.insertBefore(formDiv, typingIndicator);
+            chatBox.scrollTop = chatBox.scrollHeight; // Scroll to show form
+
+            // Add event listener to submit button
+            document.getElementById('submit-info-btn').addEventListener('click', submitUserInfo);
+        }
+        
+        // Handle user info submission
+        function submitUserInfo() {
+            const nameInput = document.getElementById('name-input');
+            const emailInput = document.getElementById('email-input');
+            
+            const name = nameInput.value.trim();
+            const email = emailInput.value.trim();
+            const currentUser = "User"; 
+            // Validate inputs
+            if (!name) {
+                alert('Please enter your name');
+                return;
+            }
+            
+            if (!email || !isValidEmail(email)) {
+                alert('Please enter a valid email address');
+                return;
+            }
+            
+            // Generate message ID
+            const messageId = crypto.randomUUID();
+            
+            // Send form data through WebSocket
+            socket.send(JSON.stringify({
+                form_data: {
+                    name: name,
+                    email: email
+                },
+                sender: currentUser,
+                message_id: messageId
+            }));
+            
+            // Display the submitted info in chat as a user message
+            const formattedMessage = `Name: ${name}, Email: ${email}`;
+            appendMessage(currentUser, formattedMessage, null, null, "user", messageId, "sent");
+            sentMessages[messageId] = true;
+            
+            // Remove the form and show normal input
+            document.getElementById('user-info-form').remove();
+            document.getElementById('message-controls').style.display = 'flex';
+        }
+        
+        // Email validation helper
+        function isValidEmail(email) {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return emailRegex.test(email);
+        }
+
+        // Ensure DOM is loaded before handling WebSocket messages
+        document.addEventListener('DOMContentLoaded', () => {
+            socket.onmessage = function(e) {
+                const data = JSON.parse(e.data);
+                console.log("Received:", data);
+
+                // Check if we should show the user info form
+                if (data.show_form && data.form_type === 'user_info') {
+                    showUserInfoForm();
+                    return;
+                }
+
+                // Ignore typing events on user side
+                if (data.typing !== undefined) {
+                    return; // Do not show typing indicator for user
+                }
+
+                if (data.status && data.message_id && sentMessages[data.message_id]) {
+                    updateMessageStatus(data.message_id, data.status);
+                    return;
+                }
+
+                const sender = data.sender;
+                const message = data.message;
+                const messageId = data.message_id;
+                const fileUrl = data.file_url;
+                const fileName = data.file_name;
+
+                if ((message || fileUrl) && sender !== currentUser) {
+                    appendMessage(sender, message, fileUrl, fileName, "agent", messageId, "delivered");
+                    socket.send(JSON.stringify({ status: "seen", message_id: messageId, sender: currentUser }));
+                }
+            };
+        });
 
         socket.onclose = function() {
             appendMessage("System", "Connection closed. Please refresh.", null, null, "system", `sys-${Date.now()}`);
@@ -368,7 +523,7 @@
             input.value = "";
             fileInput.value = "";
             document.getElementById("file-preview-container").style.display = "none";
-            notifyTyping(); // Send typing: false after sending message
+            notifyTyping(); 
         }
 
         let typingTimeout;
@@ -377,7 +532,7 @@
             const content = input.value.trim();
             socket.send(JSON.stringify({
                 typing: content.length > 0,
-                content: content, // Send the typed message content
+                content: content, 
                 sender: currentUser
             }));
             clearTimeout(typingTimeout);

@@ -32,8 +32,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if not self.is_agent:
             self.predefined_messages = [
                 "Welcome to the chat room!",
-                "Great to see you! What's on your mind?",
-                "Keep the conversation going!"
+                "Please provide your name and email to continue."  # Modified second message
             ]
             redis_key = f"predefined:{self.room_name}:{self.user}"
             redis_client.set(redis_key, 0)  # Start with index 0
@@ -96,6 +95,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if data.get('status') == 'seen' and data.get('message_id'):
             await self.handle_seen_status(data, collection)
             return
+            
+        # Handle User Info Form Data
+        if data.get('form_data'):
+            await self.handle_form_data(data, collection)
+            return
 
         # Handle Sending Chat Message
         if data.get('message') or data.get('file_url'):
@@ -153,6 +157,57 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
+    async def handle_form_data(self, data, collection):
+        form_data = data.get('form_data', {})
+        name = form_data.get('name', '')
+        email = form_data.get('email', '')
+        message_id = generate_id()
+        timestamp = datetime.utcnow()
+        
+        # Format message for display and database
+        formatted_message = f"Name: {name}, Email: {email}"
+        sender = data.get('sender', 'User') 
+        doc = {
+            'message_id': message_id,
+            'room_id': self.room_name,
+            'sender': sender,
+            'message': formatted_message,
+            'file_url': '',
+            'file_name': '',
+            'delivered': True,
+            'seen': False,
+            'timestamp': timestamp,
+            'user_info': {
+                'name': name,
+                'email': email
+            }
+        }
+        
+        insert_result = await sync_to_async(insert_with_timestamps)(collection, doc)
+        
+        if insert_result.inserted_id:
+            print(f"[DB ✅] User info form data inserted with ID: {insert_result.inserted_id}")
+        else:
+            print(f"[DB ❌] User info form data insert failed for: {message_id}")
+            
+        # Send the message to all connected clients
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'chat_message',
+                'message': formatted_message,
+                'sender': sender,
+                'message_id': message_id,
+                'file_url': '',
+                'file_name': '',
+                'timestamp': timestamp.isoformat(),
+                'form_data_received': True  # Flag to indicate this is a form submission
+            }
+        )
+        
+        # Send a thank you message
+        await self.send_thank_you_message(name)
+
     async def handle_new_message(self, data, collection):
         message_id = data.get('message_id') or generate_id()
         timestamp = datetime.utcnow()
@@ -201,6 +256,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             if next_index < len(self.predefined_messages):
                 redis_client.set(redis_key, next_index)
                 await self.send_predefined_message(next_index)
+                
+                # If this is the second message, also send a signal to show the form
+                if next_index == 1:  # Index 1 is the second message
+                    await self.send_show_form_signal()
 
     async def send_predefined_message(self, index):
         # Only proceed if this is not an agent connection
@@ -230,16 +289,74 @@ class ChatConsumer(AsyncWebsocketConsumer):
         else:
             print(f"[DB ❌] Predefined message insert failed for: {message_id}")
 
-        # Send predefined message only to the user's WebSocket connection
+        # Send predefined message to all connections in the room
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'chat_message',
+                'message': message,
+                'sender': 'System',
+                'message_id': message_id,
+                'file_url': '',
+                'file_name': '',
+                'timestamp': timestamp.isoformat()
+            }
+        )
+        
+    async def send_show_form_signal(self):
+        """Send a signal to show the user info form"""
+        print(f"[SHOW FORM] Sending form signal to room {self.room_group_name}")
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'show_form_signal',
+                'show_form': True,
+                'form_type': 'user_info'
+            }
+        )
+
+    async def show_form_signal(self, event):
+        """Handle show form signal events"""
+        print(f"[SHOW FORM] Sending form signal to client: {event}")
         await self.send(text_data=json.dumps({
-            'message': message,
-            'sender': 'System',
+            'show_form': event['show_form'],
+            'form_type': event['form_type']
+        }))
+        
+    async def send_thank_you_message(self, name):
+        """Send a thank you message after form submission"""
+        collection = await sync_to_async(get_chat_collection)()
+        message = f"Thank you {name}! Your information has been received."
+        message_id = generate_id()
+        timestamp = datetime.utcnow()
+
+        doc = {
             'message_id': message_id,
+            'room_id': self.room_name,
+            'sender': 'System',
+            'message': message,
             'file_url': '',
             'file_name': '',
-            'timestamp': timestamp.isoformat(),
-            'status': 'delivered'
-        }))
+            'delivered': True,
+            'seen': False,
+            'timestamp': timestamp
+        }
+
+        insert_result = await sync_to_async(insert_with_timestamps)(collection, doc)
+        
+        # Send thank you message to the chat room
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'chat_message',
+                'message': message,
+                'sender': 'System',
+                'message_id': message_id,
+                'file_url': '',
+                'file_name': '',
+                'timestamp': timestamp.isoformat()
+            }
+        )
 
     async def chat_message(self, event):
         print(f"[SEND MESSAGE] {event}")
@@ -247,10 +364,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'message': event['message'],
             'sender': event['sender'],
             'message_id': event['message_id'],
-            'file_url': event['file_url'],
-            'file_name': event['file_name'],
+            'file_url': event.get('file_url', ''),
+            'file_name': event.get('file_name', ''),
             'timestamp': event['timestamp'],
-            'status': 'delivered'
+            'status': 'delivered',
+            'form_data_received': event.get('form_data_received', False)
         }))
 
     async def typing_status(self, event):
