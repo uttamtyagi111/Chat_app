@@ -343,6 +343,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }
 
         insert_result = await sync_to_async(insert_with_timestamps)(collection, doc)
+        if insert_result.inserted_id:
+            print(f"[DB ✅] Thank you message after user form inserted with ID: {insert_result.inserted_id}")
+        else:
+            print(f"[DB ❌] Thank you message after user form insert failed for: {message_id}")
         
         # Send thank you message to the chat room
         await self.channel_layer.group_send(
