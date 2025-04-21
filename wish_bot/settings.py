@@ -38,6 +38,10 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+]
+
 LOGIN_URL = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/chat/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
@@ -46,6 +50,7 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 
 INSTALLED_APPS = [
     'daphne',
+    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -61,7 +66,7 @@ INSTALLED_APPS = [
 import os
 from dotenv import load_dotenv
 
-# Load .env file
+# Load environment variables from .env file
 load_dotenv()
 DEFAULT_FILE_STORAGE = os.getenv("DEFAULT_FILE_STORAGE")
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
@@ -75,6 +80,7 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     # 'django.middleware.csrf.CsrfViewMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
