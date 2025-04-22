@@ -68,8 +68,7 @@ INSTALLED_APPS = [
     'channels',
     'rest_framework',
     'chat',
-    'storages',
-    'accounts'
+    'storages'
 ]
 import os
 from dotenv import load_dotenv
