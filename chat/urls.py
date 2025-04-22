@@ -2,7 +2,7 @@ from django.urls import path
 from chat import views
 from django.conf import settings
 from django.conf.urls.static import static
-from .views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView
+from .views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView
 
 urlpatterns = [
     # path('', views.index, name='index'),
@@ -14,7 +14,13 @@ urlpatterns = [
     path('user-chat/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
     path('agent-chat/<str:room_id>/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
     path('active-rooms/', ActiveRoomsAPIView.as_view(), name='active-rooms'),
-    path('messages/', ChatMessagesByDateAPIView.as_view(), name='chat-messages-by-date'),
+    path('messages-by-date/', ChatMessagesByDateAPIView.as_view(), name='chat-messages-by-date'),
+    path('messages/<str:room_id>/', ChatMessagesAPIView.as_view(), name='chat-messages'),
+    path('rooms/<str:room_id>/notes/create/', views.create_agent_note, name='create_agent_note'),
+    path('rooms/<str:room_id>/notes/', views.get_agent_notes, name='get_agent_notes'),
+    path('rooms/<str:room_id>/notes/<str:note_id>/', views.get_note_by_id, name='get_note_by_id'),
+    path('rooms/<str:room_id>/notes/<str:note_id>/update/', views.update_agent_note, name='update_agent_note'),
+    path('rooms/<str:room_id>/notes/<str:note_id>/delete/', views.delete_agent_note, name='delete_agent_note'),
 ]
 if settings.DEBUG:
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

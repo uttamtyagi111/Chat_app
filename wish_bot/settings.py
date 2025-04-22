@@ -41,7 +41,15 @@ CSRF_TRUSTED_ORIGINS = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
+CORS_ALLOW_ALL_ORIGINS = True
 
+CORS_ALLOW_METHODS = [
+    'GET',
+    'POST',
+    'PUT',
+    'DELETE',
+    'OPTIONS',
+]
 LOGIN_URL = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/chat/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'

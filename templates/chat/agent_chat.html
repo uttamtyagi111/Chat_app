@@ -53,17 +53,16 @@
             width: 100%;
         }
         .system-message {
-            background-color: #e6e6e6; /* Light gray background to distinguish from agent messages */
+            background-color: #e6e6e6;
             font-style: italic;
-            /* Inherits right alignment from agent class */
         }
         .preview {
             background-color: #D0E6FF;
             align-self: flex-start;
             text-align: left;
-            opacity: 0.7; /* Faded effect for preview */
-            font-style: italic; /* Differentiate from sent messages */
-            border: 1px dashed #999; /* Optional: dashed border */
+            opacity: 0.7;
+            font-style: italic;
+            border: 1px dashed #999;
         }
         .timestamp {
             display: block;
@@ -79,7 +78,7 @@
             color: #2196F3;
         }
         #typing-indicator {
-            display: none; /* Hidden since preview is in chat-box */
+            display: none;
         }
         .file-preview img {
             max-width: 100%;
@@ -98,14 +97,14 @@
         #file-input {
             display: none;
         }
-        #attach-button, #emoji-button {
+        #attach-button, #emoji-button, #notes-button {
             background-color: #f0f0f0;
             border: 1px solid #ccc;
             padding: 5px 10px;
             border-radius: 4px;
             cursor: pointer;
         }
-        #attach-button:hover, #emoji-button:hover {
+        #attach-button:hover, #emoji-button:hover, #notes-button:hover {
             background-color: #e0e0e0;
         }
         #emoji-picker {
@@ -157,6 +156,33 @@
             font-weight: bold;
             padding: 2px 6px;
         }
+        #notes-modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+            z-index: 200;
+            width: 400px;
+        }
+        .note-item {
+            margin: 5px 0;
+            padding: 8px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .note-item .timestamp {
+            font-size: 12px;
+            color: #999;
+            display: block;
+            margin-top: 4px;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js" type="module"></script>
 </head>
@@ -186,22 +212,42 @@
         <emoji-picker></emoji-picker>
     </div>
 
+    <!-- Notes Button and Modal -->
+    <button id="notes-button" onclick="toggleNotesPanel()">📝 Notes</button>
+    <div id="notes-modal">
+        <h3>Notes for Room: <span class="system">{{ room_id }}</span></h3>
+        <div id="notes-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 10px; padding: 10px; border: 1px solid #ddd; border-radius: 4px;"></div>
+        <textarea id="note-input" placeholder="Type your note here..." style="width: 100%; height: 80px; resize: none; border-radius: 4px; padding: 5px;"></textarea>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+            <button onclick="saveNote()">Save Note</button>
+            <button onclick="toggleNotesPanel()">Close</button>
+        </div>
+    </div>
+
     <script>
         const roomId = "{{ room_id }}";
-        const currentUser = "Agent"; // Or "{{ user.username }}" if authenticated
+        const currentUser = "Agent";
         const socket = new WebSocket(`ws://${window.location.host}/ws/chat/${roomId}/?agent=true`);
         const chatBox = document.getElementById("chat-box");
         const typingIndicator = document.getElementById("typing-indicator");
         const sentMessages = {};
-        let previewMessage = null; // Track the preview message element
+        let previewMessage = null;
+
+        // Logging utility for structured output
+        function logMessage(category, message, data = null) {
+            const timestamp = new Date().toISOString();
+            console.log(`[${timestamp}] ${category}: ${message}`, data ? data : '');
+        }
 
         function toggleEmojiPicker() {
             const emojiPicker = document.getElementById("emoji-picker");
+            logMessage("EmojiPicker", `Toggling emoji picker, current display: ${emojiPicker.style.display}`);
             emojiPicker.style.display = emojiPicker.style.display === "block" ? "none" : "block";
         }
         
         document.querySelector('emoji-picker').addEventListener('emoji-click', event => {
             const messageInput = document.getElementById("message-input");
+            logMessage("EmojiPicker", `Emoji clicked: ${event.detail.unicode}`);
             messageInput.value += event.detail.unicode;
             document.getElementById("emoji-picker").style.display = "none";
         });
@@ -209,8 +255,15 @@
         document.addEventListener('click', function(event) {
             const emojiPicker = document.getElementById("emoji-picker");
             const emojiButton = document.getElementById("emoji-button");
+            const notesModal = document.getElementById("notes-modal");
+            const notesButton = document.getElementById("notes-button");
             if (emojiPicker.style.display === "block" && event.target !== emojiButton && !emojiPicker.contains(event.target)) {
+                logMessage("EmojiPicker", "Closing emoji picker due to outside click");
                 emojiPicker.style.display = "none";
+            }
+            if (notesModal.style.display === "block" && event.target !== notesButton && !notesModal.contains(event.target)) {
+                logMessage("NotesModal", "Closing notes modal due to outside click");
+                notesModal.style.display = "none";
             }
         });
         
@@ -221,19 +274,23 @@
             
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
+                logMessage("FileSelection", `File selected: ${file.name}`);
                 previewName.textContent = file.name;
                 previewContainer.style.display = "block";
             } else {
+                logMessage("FileSelection", "No file selected, hiding preview");
                 previewContainer.style.display = "none";
             }
         }
         
         document.getElementById("remove-file").addEventListener("click", function() {
+            logMessage("FileSelection", "Removing selected file");
             document.getElementById("file-input").value = "";
             document.getElementById("file-preview-container").style.display = "none";
         });
 
         function getTicks(status) {
+            logMessage("MessageStatus", `Getting ticks for status: ${status}`);
             switch (status) {
                 case "sent": return '<span class="tick">✓</span>';
                 case "delivered": return '<span class="tick">✓✓</span>';
@@ -244,23 +301,17 @@
 
         function appendMessage(sender, message, fileUrl, fileName, className, messageId, status = "sent") {
             const div = document.createElement("div");
-            
-            // First determine the proper base class based on sender
             if (sender === "System" || sender === currentUser) {
-                div.classList.add("message", "agent"); // This will align to right
+                div.classList.add("message", "agent");
             } else {
-                div.classList.add("message", "user"); // This will align to left
+                div.classList.add("message", "user");
             }
-            
-            // Then add system-message class if it's a system message
             if (sender === "System") {
                 div.classList.add("system-message");
             }
-            
             div.id = `msg-${messageId}`;
             const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const ticks = (sender === currentUser || sender === "System") ? getTicks(status) : "";
-            
             let content = message ? `<strong>${sender}:</strong> ${message}` : `<strong>${sender}:</strong>`;
             if (fileUrl) {
                 const isImage = fileName.match(/\.(jpg|jpeg|png|gif)$/i);
@@ -273,6 +324,7 @@
             div.innerHTML = `${content}<span class="timestamp">${time} ${ticks}</span>`;
             chatBox.insertBefore(div, typingIndicator);
             chatBox.scrollTop = chatBox.scrollHeight;
+            logMessage("Chat", `Appended message: sender=${sender}, messageId=${messageId}, status=${status}`);
         }
 
         function updateMessageStatus(messageId, status) {
@@ -281,14 +333,15 @@
                 const parts = messageDiv.innerHTML.split('<span class="timestamp">')[0];
                 const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 messageDiv.innerHTML = `${parts}<span class="timestamp">${time} ${getTicks(status)}</span>`;
+                logMessage("Chat", `Updated message status: messageId=${messageId}, status=${status}`);
             }
         }
 
         function appendTypingPreview(sender, content) {
-            // Remove existing preview if it exists
             if (previewMessage) {
                 previewMessage.remove();
                 previewMessage = null;
+                logMessage("Chat", "Removed existing typing preview");
             }
             if (content) {
                 const div = document.createElement("div");
@@ -298,20 +351,19 @@
                 chatBox.insertBefore(div, typingIndicator);
                 previewMessage = div;
                 chatBox.scrollTop = chatBox.scrollHeight;
+                logMessage("Chat", `Appended typing preview: sender=${sender}, content=${content}`);
             }
         }
 
         socket.onmessage = function(e) {
             const data = JSON.parse(e.data);
-            console.log("Received in agent:", data);
-            
-            // Handle typing status
+            logMessage("WebSocket", "Received message", data);
             if (data.typing !== undefined) {
                 if (data.typing && data.content && data.sender !== currentUser) {
-                    console.log("Showing typing preview:", data.content);
+                    logMessage("WebSocket", `Showing typing preview: sender=${data.sender}, content=${data.content}`);
                     appendTypingPreview(data.sender, data.content);
                 } else {
-                    console.log("Removing typing preview");
+                    logMessage("WebSocket", "Removing typing preview");
                     if (previewMessage) {
                         previewMessage.remove();
                         previewMessage = null;
@@ -319,43 +371,38 @@
                 }
                 return;
             }
-            
-            // Handle message status updates
             if (data.status && data.message_id && sentMessages[data.message_id]) {
                 updateMessageStatus(data.message_id, data.status);
                 return;
             }
-            
             const sender = data.sender;
             const message = data.message;
             const messageId = data.message_id;
             const fileUrl = data.file_url;
             const fileName = data.file_name;
-            
-            // Handle history messages
             if (data.history === true) {
                 const status = data.seen ? "seen" : "delivered";
                 appendMessage(sender, message, fileUrl, fileName, "", messageId, status);
                 return;
             }
-            
-            // Handle regular new messages
             if ((message || fileUrl) && sender !== currentUser) {
-                // Remove preview when actual message arrives
                 if (previewMessage) {
                     previewMessage.remove();
                     previewMessage = null;
                 }
                 appendMessage(sender, message, fileUrl, fileName, "user", messageId, "delivered");
                 socket.send(JSON.stringify({ status: "seen", message_id: messageId, sender: currentUser }));
+                logMessage("WebSocket", `Sent seen status: messageId=${messageId}`);
             }
         };
 
         socket.onclose = function() {
+            logMessage("WebSocket", "Connection closed");
             appendMessage("System", "Connection closed. Please refresh.", null, null, "system", `sys-${Date.now()}`);
         };
 
         socket.onerror = function() {
+            logMessage("WebSocket", "WebSocket error occurred");
             appendMessage("System", "WebSocket error occurred.", null, null, "system", `sys-${Date.now()}`);
         };
 
@@ -366,17 +413,19 @@
             const file = fileInput.files[0];
             const messageId = crypto.randomUUID();
 
+            logMessage("Chat", `Sending message: message=${message}, hasFile=${!!file}, messageId=${messageId}`);
+
             if (file) {
                 const formData = new FormData();
                 formData.append('file', file);
-
                 try {
+                    logMessage("FileUpload", "Uploading file to: upload-file/");
                     const response = await fetch('upload-file/', {
                         method: 'POST',
                         body: formData
                     });
                     const result = await response.json();
-
+                    logMessage("FileUpload", `File upload response: status=${response.status}, data=`, result);
                     if (response.ok) {
                         socket.send(JSON.stringify({
                             message: message,
@@ -388,11 +437,11 @@
                         appendMessage(currentUser, message, result.file_url, result.file_name, "agent", messageId, "sent");
                         sentMessages[messageId] = true;
                     } else {
-                        console.error('File upload failed:', result.error);
+                        logMessage("FileUpload", `File upload failed: ${result.error}`, result);
                         appendMessage("System", "Failed to upload file.", null, null, "system", `sys-${Date.now()}`);
                     }
                 } catch (error) {
-                    console.error('Error uploading file:', error);
+                    logMessage("FileUpload", `Error uploading file: ${error.message}`, error);
                     appendMessage("System", "Error uploading file.", null, null, "system", `sys-${Date.now()}`);
                 }
             } else if (message) {
@@ -400,14 +449,99 @@
                 appendMessage(currentUser, message, null, null, "agent", messageId, "sent");
                 sentMessages[messageId] = true;
             }
-
             input.value = "";
             fileInput.value = "";
             document.getElementById("file-preview-container").style.display = "none";
         }
 
         document.getElementById("message-input").addEventListener("keyup", function(event) {
-            if (event.key === "Enter") sendMessage();
+            if (event.key === "Enter") {
+                logMessage("Chat", "Enter key pressed, sending message");
+                sendMessage();
+            }
+        });
+
+        // Notes Functionality
+        function toggleNotesPanel() {
+            const notesModal = document.getElementById("notes-modal");
+            logMessage("NotesModal", `Toggling notes modal, current display: ${notesModal.style.display}`);
+            notesModal.style.display = notesModal.style.display === "block" ? "none" : "block";
+            if (notesModal.style.display === "block") {
+                logMessage("NotesModal", `Loading notes for room: ${roomId}`);
+                loadNotes();
+            }
+        }
+
+        async function loadNotes() {
+            const notesList = document.getElementById("notes-list");
+            const url = `/chat/rooms/${roomId}/notes/?agent=true`;
+            logMessage("Notes", `Fetching notes from: ${url}`);
+            notesList.innerHTML = "";
+            try {
+                const response = await fetch(url);
+                logMessage("Notes", `Load notes response: status=${response.status}, ok=${response.ok}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error: ${response.status}`);
+                }
+                const notes = await response.json();
+                logMessage("Notes", `Received ${notes.length} notes`, notes);
+                notes.forEach(note => {
+                    const div = document.createElement("div");
+                    div.classList.add("note-item");
+                    div.innerHTML = `${note.content}<span class="timestamp">${new Date(note.created_at).toLocaleString()}</span>`;
+                    notesList.appendChild(div);
+                });
+            } catch (error) {
+                logMessage("Notes", `Error loading notes: ${error.message}`, error);
+                const div = document.createElement("div");
+                div.classList.add("note-item");
+                div.textContent = "Error loading notes.";
+                notesList.appendChild(div);
+            }
+        }
+
+        async function saveNote() {
+            const noteInput = document.getElementById("note-input");
+            const content = noteInput.value.trim();
+            logMessage("Notes", `Attempting to save note: content="${content}"`);
+            if (content) {
+                const url = `/chat/rooms/${roomId}/notes/create/?agent=true`;
+                const headers = {
+                    'Content-Type': 'application/json',
+                };
+                const body = JSON.stringify({ content });
+                logMessage("Notes", `Sending POST request to: ${url}`);
+                logMessage("Notes", "Request details", { method: 'POST', headers, body });
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: headers,
+                        body: body
+                    });
+                    logMessage("Notes", `Response received: status=${response.status}, ok=${response.ok}`);
+                    logMessage("Notes", "Response headers", Object.fromEntries(response.headers.entries()));
+                    const responseData = await response.json();
+                    logMessage("Notes", "Response data", responseData);
+                    if (response.ok) {
+                        logMessage("Notes", "Note saved successfully, clearing input and reloading notes");
+                        noteInput.value = "";
+                        loadNotes();
+                    } else {
+                        logMessage("Notes", `Failed to save note: ${responseData.detail || responseData.error}`, responseData);
+                        appendMessage("System", `Failed to save note: ${responseData.detail || responseData.error}`, null, null, "system", `sys-${Date.now()}`);
+                    }
+                } catch (error) {
+                    logMessage("Notes", `Network or fetch error: ${error.message}`, error);
+                    appendMessage("System", `Error saving note: ${error.message}`, null, null, "system", `sys-${Date.now()}`);
+                }
+            } else {
+                logMessage("Notes", "No note content provided, skipping save");
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            logMessage("Init", `Page loaded, initializing notes for room: ${roomId}`);
+            loadNotes();
         });
     </script>
 </body>

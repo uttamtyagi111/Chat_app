@@ -144,3 +144,16 @@ def update_many_with_timestamp(collection, query, update_data):
     
     update_data['$set']['updated_at'] = datetime.now(timezone.utc)
     return collection.update_many(query, update_data)
+
+def get_agent_notes_collection():
+    """
+    Get MongoDB collection for agent notes
+    """
+    from pymongo import MongoClient
+    
+    # Use the same connection approach as your existing functions
+    client = get_mongo_client()  # Adjust connection string if needed
+    db = client['wish_bot_db']  # Use the same database name as your other collections
+    collection = db['agent_notes']  # Create a separate collection just for agent notes
+    
+    return collection
