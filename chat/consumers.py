@@ -28,16 +28,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
-        # Initialize predefined messages state in Redis only for non-agent connections
         if not self.is_agent:
             self.predefined_messages = [
                 "Welcome to the chat room!",
-                "Please provide your name and email to continue."  # Modified second message
+                "Please provide your name and email to continue."  
             ]
             redis_key = f"predefined:{self.room_name}:{self.user}"
-            redis_client.set(redis_key, 0)  # Start with index 0
+            redis_client.set(redis_key, 0)  
 
-            # Send the first predefined message
             await self.send_predefined_message(0)
         else:
             await self.send_chat_history()
@@ -45,23 +43,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def send_chat_history(self):
         collection = await sync_to_async(get_chat_collection)()
         
-        # Fetch messages for this room, sorted by timestamp
         messages = await sync_to_async(lambda: list(
             collection.find(
                 {'room_id': self.room_name},
-                {'_id': 0}  # Exclude MongoDB _id field
-            ).sort('timestamp', 1)  # Sort by timestamp ascending
+                {'_id': 0} 
+            ).sort('timestamp', 1)  
         ))()
         
         print(f"[HISTORY] Sending {len(messages)} messages to agent for room {self.room_name}")
         
-        # Send each message to the agent
         for msg in messages:
-            # Convert datetime to string for JSON serialization
             if isinstance(msg.get('timestamp'), datetime):
                 msg['timestamp'] = msg['timestamp'].isoformat()
             
-            # Send historical message
             await self.send(text_data=json.dumps({
                 'message': msg.get('message', ''),
                 'sender': msg.get('sender', 'unknown'),
@@ -69,7 +63,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'file_url': msg.get('file_url', ''),
                 'file_name': msg.get('file_name', ''),
                 'timestamp': msg.get('timestamp', ''),
-                'status': 'history'  # Mark as historical message
+                'status': 'history'  
             }))
             
             
@@ -86,22 +80,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
         print(f"[RECEIVED] {data}")
         collection = await sync_to_async(get_chat_collection)()
 
-        # Handle Typing Status
         if data.get('typing') is not None and 'content' in data and data.get('sender') != 'agent':
             await self.handle_typing(data)
             return
 
-        # Handle Seen Message Status
         if data.get('status') == 'seen' and data.get('message_id'):
             await self.handle_seen_status(data, collection)
             return
             
-        # Handle User Info Form Data
         if data.get('form_data'):
             await self.handle_form_data(data, collection)
             return
 
-        # Handle Sending Chat Message
         if data.get('message') or data.get('file_url'):
             await self.handle_new_message(data, collection)
 
@@ -164,7 +154,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         message_id = generate_id()
         timestamp = datetime.utcnow()
         
-        # Format message for display and database
         formatted_message = f"Name: {name}, Email: {email}"
         sender = data.get('sender', 'User') 
         doc = {
@@ -190,7 +179,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         else:
             print(f"[DB ❌] User info form data insert failed for: {message_id}")
             
-        # Send the message to all connected clients
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -201,11 +189,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'file_url': '',
                 'file_name': '',
                 'timestamp': timestamp.isoformat(),
-                'form_data_received': True  # Flag to indicate this is a form submission
+                'form_data_received': True  
             }
         )
-        
-        # Send a thank you message
         await self.send_thank_you_message(name)
 
     async def handle_new_message(self, data, collection):
@@ -248,7 +234,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
-        # Check and send next predefined message only if sender is not 'agent'
         if sender != 'agent' and not self.is_agent:
             redis_key = f"predefined:{self.room_name}:{self.user}"
             current_index = int(redis_client.get(redis_key) or 0)
@@ -257,12 +242,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 redis_client.set(redis_key, next_index)
                 await self.send_predefined_message(next_index)
                 
-                # If this is the second message, also send a signal to show the form
-                if next_index == 1:  # Index 1 is the second message
+                if next_index == 1: 
                     await self.send_show_form_signal()
 
     async def send_predefined_message(self, index):
-        # Only proceed if this is not an agent connection
         if hasattr(self, 'is_agent') and self.is_agent:
             return
             
@@ -289,7 +272,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         else:
             print(f"[DB ❌] Predefined message insert failed for: {message_id}")
 
-        # Send predefined message to all connections in the room
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -348,7 +330,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         else:
             print(f"[DB ❌] Thank you message after user form insert failed for: {message_id}")
         
-        # Send thank you message to the chat room
         await self.channel_layer.group_send(
             self.room_group_name,
             {

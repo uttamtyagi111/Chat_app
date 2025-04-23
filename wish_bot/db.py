@@ -149,11 +149,8 @@ def get_agent_notes_collection():
     """
     Get MongoDB collection for agent notes
     """
-    from pymongo import MongoClient
-    
-    # Use the same connection approach as your existing functions
-    client = get_mongo_client()  # Adjust connection string if needed
-    db = client['wish_bot_db']  # Use the same database name as your other collections
-    collection = db['agent_notes']  # Create a separate collection just for agent notes
+    client = get_mongo_client() 
+    db = client['wish_bot_db'] 
+    collection = db['agent_notes']  
     
     return collection

@@ -5,8 +5,6 @@ from django.conf.urls.static import static
 from .views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView
 
 urlpatterns = [
-    # path('', views.index, name='index'),
-    # path('<str:room_name>/', views.room, name='room'),
     path('', views.chat_view, name='chat_home'),
     path('chatroom/', views.chat_view, name='chat_view'),
     path('user-chat/', views.user_chat, name='user_chat'),
