@@ -30,6 +30,7 @@ DEBUG = True
 ALLOWED_HOSTS = [
     "localhost",
     "127.0.0.1",
+    "208.87.134.149",
     "wish-bot.onrender.com",
 ]
 
@@ -41,6 +42,7 @@ CSRF_TRUSTED_ORIGINS = [
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
+    "http://127.0.0.1:3000",
 ]
 CORS_ALLOW_ALL_ORIGINS = True
 
@@ -51,9 +53,9 @@ CORS_ALLOW_METHODS = [
     'DELETE',
     'OPTIONS',
 ]
-LOGIN_URL = '/accounts/login/'
+LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/chat/'
-LOGOUT_REDIRECT_URL = '/accounts/login/'
+LOGOUT_REDIRECT_URL = '/login/'
 
 
 
@@ -70,7 +72,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'chat',
     'storages',
-    'drf_yasg'
+    'drf_yasg',
 ]
 
 
@@ -212,7 +214,7 @@ LOGGING = {
         'file': {
             'level': 'DEBUG',
             'class': 'logging.FileHandler',
-            'filename': 'debug.log',  # Logs will be written to this file
+            'filename': '/var/log/chat_app/debug.log',  # Logs will be written to this file
             'formatter': 'verbose',
         },
         'console': {
