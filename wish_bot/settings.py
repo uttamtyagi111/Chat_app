@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 # from decouple import config
 from pathlib import Path
 import os
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -68,10 +69,10 @@ INSTALLED_APPS = [
     'channels',
     'rest_framework',
     'chat',
-    'storages'
+    'storages',
+    'drf_yasg'
 ]
-import os
-from dotenv import load_dotenv
+
 
 # Load environment variables from .env file
 load_dotenv()
