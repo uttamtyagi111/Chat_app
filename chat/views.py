@@ -28,7 +28,7 @@ from drf_yasg import openapi
     **WebSocket Endpoints for Chat Application**
 
     **1. User Chat WebSocket:**
-    - URL: `ws://127.0.0.1:8000/ws/user_chat/`
+    - URL: `ws://127.0.0.1:8000/ws/chat/user_chat/`
     - Connect as a User to start chatting.
     - **Send message format:**
       ```json
@@ -44,7 +44,7 @@ from drf_yasg import openapi
       ```
 
     **2. Agent Chat WebSocket:**
-    - URL: `ws://127.0.0.1:8000/ws/agent_chat/{room_id}/`
+    - URL: `ws://127.0.0.1:8000/ws/chat/agent_chat/{room_id}/`
     - Connect as an Agent to join a user room.
     - **Send message format:**
       ```json
