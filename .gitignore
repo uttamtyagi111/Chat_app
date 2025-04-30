@@ -6,12 +6,21 @@ __pycache__/
 *.pyo
 *.pyd
 *.pyc
+*.pdb
+*.egg-info/
+*.egg
+
 
 # Virtual environment
 venv/
 env/
 ENV/
 .venv/
+env.bak/
+venv.bak/
+envs/
+.venvs/
+
 
 # Django
 *.log
@@ -33,6 +42,14 @@ build/
 *.swp
 *.swo
 
+# Ignore all migration files
+**/migrations/*.py
+**/migrations/*.pyc
+**/migrations/__pycache__/
+**/migrations/__init__.py
+**/migrations/*.json
+
+
 # OS files
 .DS_Store      # macOS
 Thumbs.db      # Windows
@@ -46,14 +63,33 @@ Thumbs.db      # Windows
 *.env
 *.env.*
 .venv/
+.envrc
+*.envrc
+*.env.example
+
 
 # Jupyter Notebook Checkpoints
 .ipynb_checkpoints
+*.ipynb_checkpoints
+
+# Pytest cache
+.pytest_cache/
+__pycache__/
+*.cover
+*.coverage
 
 # Static files
 static/
 media/
 staticfiles/
+staticfiles.json
+staticfiles.json.gz
+
 
 # Other
 *.log
+*.pot
+*.po
+*.mo
+*.pot~
+
