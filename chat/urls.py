@@ -9,6 +9,7 @@ urlpatterns = [
     path('chatroom/', views.chat_view, name='chat_view'),
     path('user-chat/', UserChatAPIView.as_view(), name='user_chat'),
     path('agent-chat/<str:room_id>/', AgentChatAPIView.as_view(), name='agent_chat'),
+    path('websocket-documentation/', views.websocket_documentation, name='websocket_documentation'),
     path('user-chat/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
     path('agent-chat/<str:room_id>/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
     path('active-rooms/', ActiveRoomsAPIView.as_view(), name='active-rooms'),

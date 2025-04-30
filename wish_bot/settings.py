@@ -53,9 +53,9 @@ CORS_ALLOW_METHODS = [
     'DELETE',
     'OPTIONS',
 ]
-LOGIN_URL = '/login/'
-LOGIN_REDIRECT_URL = '/chat/'
-LOGOUT_REDIRECT_URL = '/login/'
+# LOGIN_URL = '/login/'
+# LOGIN_REDIRECT_URL = '/chat/'
+# LOGOUT_REDIRECT_URL = '/login/'
 
 
 
