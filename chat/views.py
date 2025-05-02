@@ -269,50 +269,50 @@ class ActiveRoomsAPIView(APIView):
 agent_view for testing with frontend template
 """
 
-# def agent_chat(request, room_id):
-#     room_collection = get_room_collection()
-#     room = room_collection.find_one({'room_id': room_id})
-#     if room:
-#         room_collection.update_one(
-#             {'room_id': room_id},
-#             {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with actual agent logic
-#         )
-#     return render(request, 'chat/agent_chat.html', {'room_id': room_id})
+def agent_chat(request, room_id):
+    room_collection = get_room_collection()
+    room = room_collection.find_one({'room_id': room_id})
+    if room:
+        room_collection.update_one(
+            {'room_id': room_id},
+            {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with actual agent logic
+        )
+    return render(request, 'chat/agent_chat.html', {'room_id': room_id})
 
-class AgentChatAPIView(APIView):
-    @swagger_auto_schema(
-        operation_description="Assign an agent to an existing chat room based on room_id",
-        manual_parameters=[
-            openapi.Parameter('room_id', openapi.IN_PATH, description="Room ID so that agent can connect to", type=openapi.TYPE_STRING),
-        ],
-        responses={
-            200: openapi.Response('Agent assigned successfully', schema=openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'message': openapi.Schema(type=openapi.TYPE_STRING),
-                    'room_id': openapi.Schema(type=openapi.TYPE_STRING),
-                    'assigned_agent': openapi.Schema(type=openapi.TYPE_STRING),
-                }
-            )),
-            404: "Room not found"
-        }
-    )
-    def post(self, request, room_id):
-        room_collection = get_room_collection()
-        room = room_collection.find_one({'room_id': room_id})
+# class AgentChatAPIView(APIView):
+#     @swagger_auto_schema(
+#         operation_description="Assign an agent to an existing chat room based on room_id",
+#         manual_parameters=[
+#             openapi.Parameter('room_id', openapi.IN_PATH, description="Room ID so that agent can connect to", type=openapi.TYPE_STRING),
+#         ],
+#         responses={
+#             200: openapi.Response('Agent assigned successfully', schema=openapi.Schema(
+#                 type=openapi.TYPE_OBJECT,
+#                 properties={
+#                     'message': openapi.Schema(type=openapi.TYPE_STRING),
+#                     'room_id': openapi.Schema(type=openapi.TYPE_STRING),
+#                     'assigned_agent': openapi.Schema(type=openapi.TYPE_STRING),
+#                 }
+#             )),
+#             404: "Room not found"
+#         }
+#     )
+#     def post(self, request, room_id):
+#         room_collection = get_room_collection()
+#         room = room_collection.find_one({'room_id': room_id})
 
-        if room:
-            room_collection.update_one(
-                {'room_id': room_id},
-                {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with dynamic agent assignment if needed
-            )
-            return Response({
-                'message': 'Agent assigned successfully.',
-                'room_id': room_id,
-                'assigned_agent': 'Agent 007',
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({'message': 'Room not found.'}, status=status.HTTP_404_NOT_FOUND)
+#         if room:
+#             room_collection.update_one(
+#                 {'room_id': room_id},
+#                 {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with dynamic agent assignment if needed
+#             )
+#             return Response({
+#                 'message': 'Agent assigned successfully.',
+#                 'room_id': room_id,
+#                 'assigned_agent': 'Agent 007',
+#             }, status=status.HTTP_200_OK)
+#         else:
+#             return Response({'message': 'Room not found.'}, status=status.HTTP_404_NOT_FOUND)
         
         
 def agent_dashboard(request):
@@ -405,7 +405,10 @@ class ChatMessagesByDateAPIView(APIView):
         return Response({'messages': messages}, status=status.HTTP_200_OK)
 
 
+from django.shortcuts import render
 
+def test_widget_view(request):
+    return render(request, 'chat/test_widget.html')
 
 class ChatMessagesAPIView(APIView):
     @swagger_auto_schema(

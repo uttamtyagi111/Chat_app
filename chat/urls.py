@@ -2,13 +2,14 @@ from django.urls import path
 from chat import views
 from django.conf import settings
 from django.conf.urls.static import static
-from chat.views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView,UserChatAPIView,AgentChatAPIView
+from chat.views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView,UserChatAPIView
 
 urlpatterns = [
     path('', views.chat_view, name='chat_home'),
     path('chatroom/', views.chat_view, name='chat_view'),
+    path('test-widget/', views.test_widget_view, name='test_widget'),
     path('user-chat/', UserChatAPIView.as_view(), name='user_chat'),
-    path('agent-chat/<str:room_id>/', AgentChatAPIView.as_view(), name='agent_chat'),
+    path('agent-chat/<str:room_id>/', views.agent_chat, name='agent_chat'),
     path('websocket-documentation/', views.websocket_documentation, name='websocket_documentation'),
     path('user-chat/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
     path('agent-chat/<str:room_id>/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
@@ -22,4 +23,4 @@ urlpatterns = [
     path('rooms/<str:room_id>/notes/<str:note_id>/delete/', views.delete_agent_note, name='delete_agent_note'),
 ]
 if settings.DEBUG:
-    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)  
