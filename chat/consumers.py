@@ -10,7 +10,7 @@ from wish_bot.db import (
 )
 from utils.redis_client import redis_client
 from asgiref.sync import sync_to_async
-from utils.random_id import generate_id
+from utils.random_id import generate_room_id
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -185,7 +185,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         form_data = data.get('form_data', {})
         name = form_data.get('name', '')
         email = form_data.get('email', '')
-        message_id = generate_id()
+        message_id = generate_room_id()
         timestamp = datetime.utcnow()
         sender = data.get('sender', self.user)
 
@@ -232,7 +232,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.send(text_data=json.dumps({'error': 'Failed to process form data'}))
 
     async def handle_new_message(self, data, collection):
-        message_id = data.get('message_id') or generate_id()
+        message_id = data.get('message_id') or generate_room_id()
         timestamp = datetime.utcnow()
         sender = data.get('sender', self.user)
         message = data.get('message', '')
@@ -290,7 +290,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         collection = await sync_to_async(get_chat_collection)()
         message = self.predefined_messages[index]
-        message_id = generate_id()
+        message_id = generate_room_id()
         timestamp = datetime.utcnow()
 
         doc = {
@@ -341,7 +341,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def send_thank_you_message(self, name):
         collection = await sync_to_async(get_chat_collection)()
         message = f"Thank you {name}! Your information has been received."
-        message_id = generate_id()
+        message_id = generate_room_id()
         timestamp = datetime.utcnow()
 
         doc = {

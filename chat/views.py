@@ -3,7 +3,7 @@ from wish_bot.db import get_chat_collection
 from datetime import datetime, timedelta
 from utils.redis_client import redis_client
 from django.shortcuts import render
-from utils.random_id import generate_id 
+from utils.random_id import generate_room_id,generate_widget_id 
 import logging
 import uuid
 from rest_framework.permissions import AllowAny
@@ -14,13 +14,97 @@ from rest_framework.decorators import api_view, permission_classes,authenticatio
 from rest_framework.permissions import AllowAny
 from rest_framework import status
 from django.conf import settings
+# WebSocket documentation for Swagger UI
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 
 logger = logging.getLogger(__name__)
 
-# WebSocket documentation for Swagger UI
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
+
+# chat/views.py
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+import json
+import uuid
+from datetime import datetime
+from wish_bot.db import get_widget_collection,insert_with_timestamps
+
+@csrf_exempt
+@require_POST
+def create_widget(request):
+    try:
+        data = json.loads(request.body)
+        widget_type = data.get("widget_type")
+        name = data.get("name")
+        color = data.get("color")
+        language = data.get("language", "en")
+
+        if not all([widget_type, name, color]):
+            return JsonResponse({"error": "Missing required fields"}, status=400)
+        widget_id = generate_widget_id()
+
+        # Check for uniqueness
+        widget_collection = get_widget_collection()
+        while widget_collection.find_one({"widget_id": widget_id}):
+            widget_id = generate_widget_id()
+        # Create a new widget
+        widget = {
+            "widget_id": widget_id,
+            "widget_type": widget_type,
+            "name": name,
+            "color": color,
+            "language": language,
+        }
+        insert_with_timestamps(widget_collection, widget)
+
+        # Generate the direct chat link (only widget_id)
+        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+        direct_chat_link = f"{base_domain}/chat/{widget['widget_id']}"
+
+        return JsonResponse({
+            "widget_id": widget["widget_id"],
+            "widget_type": widget["widget_type"],
+            "name": widget["name"],
+            "color": widget["color"],
+            "language": widget["language"],
+            "direct_chat_link": direct_chat_link,
+            "widget_code": generate_widget_code(widget["widget_id"],request),
+        }, status=201)
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+# Helper function to generate widget code
+def generate_widget_code(widget_id,request):
+    base_domain = "http://localhost:8000" if "localhost" in request.get_host() else "http://208.87.134.149:8003"
+    script_url = f"{base_domain}/static/widget.js?widget_id={widget_id}"
+    return f"""
+<!-- Start of Chat Widget Script -->
+<script type="text/javascript">
+var ChatWidget_API = ChatWidget_API || [], ChatWidget_LoadStart = new Date();
+(function() {{
+    var s1 = document.createElement("script"), s0 = document.getElementsByTagName("script")[0];
+    s1.async = true;
+    s1.src = "{script_url}";
+    s1.charset = "UTF-8";
+    s0.parentNode.insertBefore(s1, s0);
+}})();
+</script>
+<!-- End of Chat Widget Script -->
+"""
+def direct_chat(request, widget_id):
+    widget_collection = get_widget_collection()
+    widget = widget_collection.find_one({"widget_id": widget_id})
+    if not widget:
+        return JsonResponse({"error": "Widget not found"}, status=404)
+
+    context = {
+        "widget_id": widget_id,
+        "base_domain": "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003",
+    }
+    return render(request, "chat/direct_chat.html", context)
 
 @swagger_auto_schema(
     method='get',
@@ -197,32 +281,93 @@ for testing with frontend template
 
 class UserChatAPIView(APIView):
     @swagger_auto_schema(
-        operation_description="Create a new chat room from client side and return the room ID",
-        responses={200: openapi.Response('Room ID created or user connected with new room', schema=openapi.Schema(
+        operation_description="Create a new chat room for a given widget ID and return the room ID and widget details",
+        request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
-                'room_id': openapi.Schema(type=openapi.TYPE_STRING, description='Generated Room ID')
-            }
-        ))}
+                'widget_id': openapi.Schema(type=openapi.TYPE_STRING, description='Widget ID to associate the room with'),
+            },
+            required=['widget_id']
+        ),
+        responses={
+            201: openapi.Response('Room created successfully', schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'room_id': openapi.Schema(type=openapi.TYPE_STRING, description='Generated Room ID'),
+                    'widget': openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'widget_id': openapi.Schema(type=openapi.TYPE_STRING, description='Widget ID'),
+                            'widget_type': openapi.Schema(type=openapi.TYPE_STRING, description='Type of the widget'),
+                            'name': openapi.Schema(type=openapi.TYPE_STRING, description='Name of the widget'),
+                            'color': openapi.Schema(type=openapi.TYPE_STRING, description='Color of the widget'),
+                            'language': openapi.Schema(type=openapi.TYPE_STRING, description='Language of the widget'),
+                        }
+                    )
+                }
+            )),
+            400: openapi.Response('Bad Request', schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'error': openapi.Schema(type=openapi.TYPE_STRING, description='Error message')
+                }
+            )),
+            404: openapi.Response('Widget Not Found', schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'error': openapi.Schema(type=openapi.TYPE_STRING, description='Error message')
+                }
+            ))
+        }
     )
     def post(self, request):
-        room_id = generate_id()
+        widget_id = request.data.get("widget_id")
+
+        # Validate widget_id
+        if not widget_id:
+            return Response({"error": "Widget ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+        # Fetch widget collection
+        widget_collection = get_widget_collection()
         room_collection = get_room_collection()
 
+        # Validate widget existence
+        widget = widget_collection.find_one({"widget_id": widget_id})
+        if not widget:
+            return Response({"error": "Widget not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Generate a unique room_id
+        room_id = generate_room_id()
         existing_room = room_collection.find_one({'room_id': room_id})
         
         while existing_room:
-            room_id = generate_id()
+            room_id = generate_room_id()
             existing_room = room_collection.find_one({'room_id': room_id})
 
-        room_collection.insert_one({
+        # Create a new room associated with the widget_id
+        room_document=({
             'room_id': room_id,
+            'widget_id': widget_id,  # Associate the room with the widget
             'is_active': True,
             'created_at': datetime.now(),
             'assigned_agent': None,
         })
+        
+        insert_with_timestamps(room_collection, room_document)
+        # Prepare widget details to return
+        widget_details = {
+            "widget_id": widget["widget_id"],
+            "widget_type": widget.get("widget_type"),
+            "name": widget.get("name"),
+            "color": widget.get("color"),
+            "language": widget.get("language", "en"),
+        }
 
-        return Response({'room_id': room_id}, status=status.HTTP_201_CREATED)
+        return Response({
+            "room_id": room_id,
+            "widget": widget_details
+        }, status=status.HTTP_201_CREATED)
 
 
 class ActiveRoomsAPIView(APIView):
@@ -613,7 +758,7 @@ def create_agent_note(request, room_id):
     if not note_content:
         return Response({"error": "Note content is required"}, status=status.HTTP_400_BAD_REQUEST)
     
-    note_id = generate_id()
+    note_id = generate_room_id()
     timestamp = datetime.utcnow()
     
     doc = {

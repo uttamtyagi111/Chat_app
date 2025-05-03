@@ -60,12 +60,14 @@ def get_redis_client():
             _redis_client = None
             raise
     return _redis_client
+
 def find_duplicates(collection, field):
     duplicates = collection.aggregate([
         {"$group": {"_id": f"${field}", "count": {"$sum": 1}, "ids": {"$push": "$_id"}}},
         {"$match": {"count": {"$gt": 1}}}
     ])
     return list(duplicates)
+
 def remove_duplicates(collection, field):
     duplicates = find_duplicates(collection, field)
     for doc in duplicates:
@@ -122,6 +124,35 @@ def get_room_collection():
     
     return collection
 
+def get_widget_collection():
+    """
+    Get MongoDB collection for widgets.
+    """
+    client = get_mongo_client()
+    db = client['wish_bot_db']
+    collection = db['widgets']
+    
+    existing_indexes = collection.index_information()
+    
+    # Ensure unique index on widget_id
+    if 'widget_id_1' in existing_indexes:
+        if not existing_indexes['widget_id_1'].get('unique', False):
+            print("Dropping non-unique widget_id_1 index...")
+            collection.drop_index('widget_id_1')
+            remove_duplicates(collection, 'widget_id')
+            collection.create_index([('widget_id', 1)], unique=True, name='widget_id_1')
+    else:
+        remove_duplicates(collection, 'widget_id')
+        collection.create_index([('widget_id', 1)], unique=True, name='widget_id_1')
+
+    # Add indexes for created_at and updated_at
+    if 'created_at_-1' not in existing_indexes:
+        collection.create_index([('created_at', -1)], name='created_at_-1')
+    if 'updated_at_-1' not in existing_indexes:
+        collection.create_index([('updated_at', -1)], name='updated_at_-1')
+    
+    return collection
+
 def insert_with_timestamps(collection, document):
     """Insert a document with created_at and updated_at timestamps in UTC"""
     current_time = datetime.now(timezone.utc)
@@ -154,3 +185,4 @@ def get_agent_notes_collection():
     collection = db['agent_notes']  
     
     return collection
+
