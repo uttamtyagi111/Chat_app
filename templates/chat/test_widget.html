@@ -2,11 +2,24 @@
 <html>
 <head>
   <title>Test Chat Widget</title>
+  {% load static %}
 </head>
 <body>
   <h1>Test Chat Widget</h1>
 
-  <!-- Start of Chat Widget Script -->
-  <script src="http://localhost:8000/static/js/chat_widget.js?widget_id=d3d9702b-07e0" data-theme-color="#28a745"></script>
+  <!-- Correct way to include static JS file -->
+  <script src="{% static 'js/chat_widget.js' %}?widget_id=d68d454e-7763" data-theme-color="#28a745"></script>
 </body>
 </html>
+<script>
+  // This script is for testing purposes only
+  console.log("Chat widget script loaded successfully.");
+  // You can add more test code here to verify the widget's functionality
+  // For example, you can check if the widget is initialized correctly
+  // or if the theme color is applied as expected.
+  // This is just a placeholder for your actual test code.
+  // You can also use console.log to output the widget_id and theme color
+  // to verify that they are being passed correctly.
+  console.log("Widget ID:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color'));
+  console.log("Theme Color:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color'));
+</script>

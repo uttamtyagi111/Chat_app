@@ -1,13 +1,18 @@
 from wish_bot.db import get_room_collection,get_agent_notes_collection
+from wish_bot.db import get_widget_collection,insert_with_timestamps
 from wish_bot.db import get_chat_collection
 from datetime import datetime, timedelta
 from utils.redis_client import redis_client
 from django.shortcuts import render
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 from utils.random_id import generate_room_id,generate_widget_id 
 import logging
 import uuid
-from rest_framework.permissions import AllowAny
+import json
 import boto3
+from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes,authentication_classes
@@ -21,15 +26,136 @@ from drf_yasg import openapi
 
 logger = logging.getLogger(__name__)
 
-
-# chat/views.py
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_http_methods
 import json
-import uuid
-from datetime import datetime
-from wish_bot.db import get_widget_collection,insert_with_timestamps
+from bson import ObjectId  # If using MongoDB ObjectId (optional, depending on your setup)
+
+# Assuming these helper functions exist in your codebase
+# from your_module import get_widget_collection, generate_widget_id, generate_widget_code, insert_with_timestamps
+
+@require_GET
+def get_widget(request, widget_id=None):
+    try:
+        widget_collection = get_widget_collection()
+        
+        # If widget_id is provided, retrieve a single widget
+        if widget_id:
+            widget = widget_collection.find_one({"widget_id": widget_id})
+            if not widget:
+                return JsonResponse({"error": "Widget not found"}, status=404)
+            
+            # Convert MongoDB document to JSON-serializable format
+            widget_response = {
+                "widget_id": widget["widget_id"],
+                "widget_type": widget["widget_type"],
+                "name": widget["name"],
+                "color": widget["color"],
+                "language": widget["language"],
+                "created_at": str(widget.get("created_at", "")),
+                "updated_at": str(widget.get("updated_at", "")),
+            }
+            
+            # Generate the direct chat link
+            base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+            widget_response["direct_chat_link"] = f"{base_domain}/direct-chat/{widget['widget_id']}"
+            
+            return JsonResponse(widget_response, status=200)
+        
+        # If no widget_id, return a list of all widgets
+        widgets = widget_collection.find()
+        widget_list = []
+        for widget in widgets:
+            widget_response = {
+                "widget_id": widget["widget_id"],
+                "widget_type": widget["widget_type"],
+                "name": widget["name"],
+                "color": widget["color"],
+                "language": widget["language"],
+                "created_at": str(widget.get("created_at", "")),
+                "updated_at": str(widget.get("updated_at", "")),
+            }
+            base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+            widget_response["direct_chat_link"] = f"{base_domain}/direct-chat/{widget['widget_id']}"
+            widget_list.append(widget_response)
+        
+        return JsonResponse({"widgets": widget_list}, status=200)
+    
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+@csrf_exempt
+@require_http_methods(["PUT"])
+def update_widget(request, widget_id):
+    try:
+        widget_collection = get_widget_collection()
+        widget = widget_collection.find_one({"widget_id": widget_id})
+        
+        if not widget:
+            return JsonResponse({"error": "Widget not found"}, status=404)
+        
+        # Parse the request body
+        data = json.loads(request.body)
+        widget_type = data.get("widget_type", widget["widget_type"])
+        name = data.get("name", widget["name"])
+        color = data.get("color", widget["color"])
+        language = data.get("language", widget["language"])
+        
+        # Validate required fields
+        if not all([widget_type, name, color]):
+            return JsonResponse({"error": "Missing required fields"}, status=400)
+        
+        # Update the widget
+        updated_widget = {
+            "widget_id": widget_id,
+            "widget_type": widget_type,
+            "name": name,
+            "color": color,
+            "language": language,
+            "created_at": widget["created_at"],  # Preserve the original created_at
+            "updated_at": datetime.utcnow()  # Update the timestamp
+        }
+        
+        widget_collection.update_one(
+            {"widget_id": widget_id},
+            {"$set": updated_widget}
+        )
+        
+        # Generate the direct chat link
+        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+        direct_chat_link = f"{base_domain}/direct-chat/{widget_id}"
+        
+        return JsonResponse({
+            "widget_id": widget_id,
+            "widget_type": widget_type,
+            "name": name,
+            "color": color,
+            "language": language,
+            "direct_chat_link": direct_chat_link,
+            "widget_code": generate_widget_code(widget_id, request),
+        }, status=200)
+    
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+@csrf_exempt
+@require_http_methods(["DELETE"])
+def delete_widget(request, widget_id):
+    try:
+        widget_collection = get_widget_collection()
+        widget = widget_collection.find_one({"widget_id": widget_id})
+        
+        if not widget:
+            return JsonResponse({"error": "Widget not found"}, status=404)
+        
+        # Delete the widget
+        widget_collection.delete_one({"widget_id": widget_id})
+        
+        return JsonResponse({"message": f"Widget {widget_id} deleted successfully"}, status=200)
+    
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
 
 @csrf_exempt
 @require_POST
@@ -61,7 +187,7 @@ def create_widget(request):
 
         # Generate the direct chat link (only widget_id)
         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
-        direct_chat_link = f"{base_domain}/chat/{widget['widget_id']}"
+        direct_chat_link = f"{base_domain}/direct-chat/{widget['widget_id']}"
 
         return JsonResponse({
             "widget_id": widget["widget_id"],
@@ -260,13 +386,13 @@ chat_rooms = {}
 for testing with frontend template 
 """
 # def user_chat(request):
-#     room_id = generate_id()
+#     room_id = generate_room_id()
 #     room_collection = get_room_collection()
 
 #     existing_room = room_collection.find_one({'room_id': room_id})
     
 #     while existing_room:
-#         room_id = generate_id()
+#         room_id = generate_room_id()
 #         existing_room = room_collection.find_one({'room_id': room_id})
 
 #     room_collection.insert_one({
@@ -322,9 +448,11 @@ class UserChatAPIView(APIView):
     )
     def post(self, request):
         widget_id = request.data.get("widget_id")
+        print("Received widget_id:", widget_id)
 
         # Validate widget_id
         if not widget_id:
+            print("No widget_id provided")
             return Response({"error": "Widget ID is required"}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -602,9 +730,9 @@ class ChatMessagesAPIView(APIView):
             msg['timestamp'] = msg['timestamp'].isoformat()
 
         return Response({'messages': messages}, status=status.HTTP_200_OK)
-    
-    
-    
+
+
+
 @api_view(['GET'])
 @swagger_auto_schema(
     operation_description="Get all agent notes for a specific room.",
