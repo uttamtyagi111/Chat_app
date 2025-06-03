@@ -601,6 +601,42 @@ def agent_dashboard(request):
         })
     return render(request, 'chat/agent_dashboard.html', {'rooms': rooms})
 
+class RoomListAPIView(APIView):
+    def get(self, request):
+        try:
+            room_collection = get_room_collection()
+            widget_collection = get_widget_collection()
+
+            rooms_cursor = room_collection.find({})
+            rooms = []
+
+            for room in rooms_cursor:
+                widget_id = room.get("widget_id")
+                widget_data = {}
+
+                if widget_id:
+                    widget = widget_collection.find_one(
+                        {"widget_id": widget_id},
+                        {"_id": 0, "widget_id": 1, "name": 1}
+                    )
+                    if widget:
+                        widget_data = {
+                            "widget_id": widget.get("widget_id"),
+                            "name": widget.get("name")
+                        }
+
+                # Inject widget info and remove raw widget_id
+                room["widget"] = widget_data
+                room.pop("_id", None)
+                room.pop("widget_id", None)
+
+                rooms.append(room)
+
+            return Response(rooms, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class ChatMessagesByDateAPIView(APIView):

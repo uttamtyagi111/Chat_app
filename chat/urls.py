@@ -2,10 +2,11 @@ from django.urls import path
 from chat import views
 from django.conf import settings
 from django.conf.urls.static import static
-from chat.views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView,UserChatAPIView
+from chat.views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView,UserChatAPIView,RoomListAPIView
 
 urlpatterns = [
-    path('', views.chat_view, name='chat_home'),
+    path('rooms/', RoomListAPIView.as_view(), name='room-list'),
+    path('active-rooms/', ActiveRoomsAPIView.as_view(), name='active-rooms'),
     path('chatroom/', views.chat_view, name='chat_view'),
     path('test-widget/', views.test_widget_view, name='test_widget'),
     path('create-widget/', views.create_widget, name='widget_view'),
@@ -19,7 +20,6 @@ urlpatterns = [
     path('websocket-documentation/', views.websocket_documentation, name='websocket_documentation'),
     path('user-chat/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
     path('agent-chat/<str:room_id>/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
-    path('active-rooms/', ActiveRoomsAPIView.as_view(), name='active-rooms'),
     path('messages-by-date/', ChatMessagesByDateAPIView.as_view(), name='chat-messages-by-date'),
     path('messages/<str:room_id>/', ChatMessagesAPIView.as_view(), name='chat-messages'),
     path('rooms/<str:room_id>/notes/create/', views.create_agent_note, name='create_agent_note'),
