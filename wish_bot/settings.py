@@ -71,7 +71,12 @@ INSTALLED_APPS = [
     'channels',
     'rest_framework',
     'chat',
+    'dashboard',
+    'support',
+    'django_redis',
+    'channels_redis',
     'storages',
+    'drf_spectacular',
     'drf_yasg',
 ]
 

@@ -1,0 +1,12 @@
+<h1>Add Agent</h1>
+<form method="POST">{% csrf_token %}
+    <input name="name" placeholder="Agent Name" required><br>
+    <input name="email" type="email" placeholder="Agent Email" required><br>
+    <button type="submit">Add Agent</button>
+</form>
+{% if error %}
+    <p style="color: red;">{{ error }}</p>
+{% endif %}
+{% if success %}
+    <p style="color: green;">{{ success }}</p>
+{% endif %}

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trigger Test Chat Widget</title>
+  <style>
+    /* Floating Chat Icon */
+    #chat-icon {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 60px;
+      height: 60px;
+      background: #007bff;
+      border-radius: 50%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      color: white;
+      font-size: 24px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+
+    /* Notification badge */
+    #notification-badge {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background-color: red;
+      color: white;
+      border-radius: 50%;
+      padding: 2px 6px;
+      font-size: 12px;
+      display: none;
+    }
+
+    /* Chat Box */
+    #chat-box {
+      position: fixed;
+      bottom: 90px;
+      right: 20px;
+      width: 300px;
+      max-height: 400px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      display: none;
+      flex-direction: column;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+
+    #chat-header {
+      background: #007bff;
+      color: white;
+      padding: 10px;
+      font-weight: bold;
+    }
+
+    #chat-body {
+      padding: 10px;
+      height: 250px;
+      overflow-y: auto;
+      font-size: 14px;
+    }
+
+    .chat-msg {
+      background: #f1f1f1;
+      margin-bottom: 6px;
+      padding: 6px 10px;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Trigger Test Page</h1>
+<p>Wait 6 seconds to test the chat trigger with a notification badge.</p>
+
+<!-- Chat Icon -->
+<div id="chat-icon">
+  💬
+  <div id="notification-badge">1</div>
+</div>
+
+<!-- Chat Box -->
+<div id="chat-box">
+  <div id="chat-header">Chat Support</div>
+  <div id="chat-body">
+    <p><em>Hi! Need help? We'll message you here.</em></p>
+  </div>
+</div>
+
+<script>
+  const chatIcon = document.getElementById('chat-icon');
+  const chatBox = document.getElementById('chat-box');
+  const chatBody = document.getElementById('chat-body');
+  const badge = document.getElementById('notification-badge');
+  let triggerMessage = null;
+
+  // Check triggers after 2 seconds
+  setTimeout(() => {
+    const currentUrl = window.location.pathname;
+    const timeOnPage = 6;
+
+    fetch(`/support/check-triggers/?url=${currentUrl}&time_on_page=${timeOnPage}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.matched_triggers && data.matched_triggers.length > 0) {
+          triggerMessage = data.matched_triggers[0].message;
+          badge.style.display = 'block'; // show badge
+        }
+      })
+      .catch(err => console.error('Error checking triggers:', err));
+  }, 2000);
+
+  // Open chat box when icon clicked
+  chatIcon.addEventListener('click', () => {
+    chatBox.style.display = 'flex';
+    badge.style.display = 'none';
+
+    if (triggerMessage) {
+      const msg = document.createElement('div');
+      msg.className = 'chat-msg';
+      msg.textContent = triggerMessage;
+      chatBody.appendChild(msg);
+      triggerMessage = null;  // Reset after displaying
+    }
+  });
+</script>
+
+</body>
+</html>

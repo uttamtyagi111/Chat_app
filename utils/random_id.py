@@ -1,3 +1,7 @@
+
+import random
+import string
+from datetime import datetime
 import uuid
 import base64
 
@@ -22,3 +26,9 @@ def generate_widget_id():
     uuid_str = str(uuid.uuid4()).replace('-', '')  # e.g., 550e8400e29b41d4a716446655440000
     # Format as xxxxxxxx-xxxx (first 8 chars, hyphen, next 4 chars)
     return f"{uuid_str[:8]}-{uuid_str[8:12]}"
+
+
+def generate_contact_id():
+    date_str = datetime.utcnow().strftime('%Y%m%d')
+    rand_str = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return f"CONT-{date_str}-{rand_str}"

@@ -1,0 +1,40 @@
+<h2>{% if ticket %}Edit{% else %}Add{% endif %} Ticket</h2>
+<form method="POST">
+  {% csrf_token %}
+  <input type="text" name="subject" value="{{ ticket.subject|default_if_none:'' }}" required><br>
+  <textarea name="description">{{ ticket.description|default_if_none:'' }}</textarea><br>
+
+  <label>Tags:</label><br>
+  {% for tag in tags %}
+    <input type="checkbox" name="tags" value="{{ tag.name }}"
+      {% if ticket and tag.name in ticket.tags %}checked{% endif %}> {{ tag.name }}<br>
+  {% endfor %}
+
+  <label>Priority:</label>
+  <select name="priority">
+    {% for p in "Low,Medium,High".split(',') %}
+      <option value="{{ p }}" {% if ticket.priority == p %}selected{% endif %}>{{ p }}</option>
+    {% endfor %}
+  </select><br>
+
+  {% if ticket %}
+  <label>Status:</label>
+  <select name="status">
+    {% for s in "Open,In Progress,Resolved,Closed".split(',') %}
+      <option value="{{ s }}" {% if ticket.status == s %}selected{% endif %}>{{ s }}</option>
+    {% endfor %}
+  </select><br>
+  {% endif %}
+
+  <button type="submit">{% if ticket %}Update{% else %}Create{% endif %}</button>
+</form>
+
+<label>Assign to Agent:</label>
+<select name="assigned_to">
+  <option value="">-- Unassigned --</option>
+  {% for agent in agents %}
+    <option value="{{ agent._id }}" {% if ticket and ticket.assigned_to == agent._id %}selected{% endif %}>
+      {{ agent.name }}
+    </option>
+  {% endfor %}
+</select><br>

@@ -1,0 +1,12 @@
+<form method="POST">
+  {% csrf_token %}
+  <input type="text" name="widget_id" placeholder="Widget ID" required />
+  <input type="text" name="name" placeholder="Trigger Name" required />
+  <textarea name="message" placeholder="Message Text"></textarea>
+  <input type="text" name="suggested_replies" placeholder="Suggested replies (comma-separated)" />
+  <select name="is_active">
+    <option value="true" selected>Active</option>
+    <option value="false">Inactive</option>
+  </select>
+  <button type="submit">Add Trigger</button>
+</form>

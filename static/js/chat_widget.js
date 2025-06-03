@@ -1,81 +1,131 @@
 document.addEventListener("DOMContentLoaded", function () {
-    // Extract widget_id from the script URL
-    let scriptSrc;
-    if (document.currentScript && document.currentScript.src) {
-        scriptSrc = document.currentScript.src;
+  // Extract widget_id from the script URL
+  let scriptSrc;
+  if (document.currentScript && document.currentScript.src) {
+    scriptSrc = document.currentScript.src;
+  } else {
+    // Fallback: Find the script tag with "chat_widget.js" in its src
+    const scripts = document.getElementsByTagName("script");
+    const script = Array.from(scripts).find((s) =>
+      s.src.includes("chat_widget.js")
+    );
+    if (script) {
+      scriptSrc = script.src;
     } else {
-        // Fallback: Find the script tag with "chat_widget.js" in its src
-        const scripts = document.getElementsByTagName("script");
-        const script = Array.from(scripts).find(s => s.src.includes("chat_widget.js"));
-        if (script) {
-            scriptSrc = script.src;
-        } else {
-            console.error("Unable to find chat_widget.js script tag");
-            return;
-        }
+      console.error("Unable to find chat_widget.js script tag");
+      return;
     }
+  }
 
-    const urlParams = new URLSearchParams(scriptSrc.split('?')[1]);
-    const widgetId = urlParams.get('widget_id');
+  const urlParams = new URLSearchParams(scriptSrc.split("?")[1]);
+  const widgetId = urlParams.get("widget_id");
 
-    if (!widgetId) {
-        console.error("Widget ID not found in script URL");
-        return;
-    }
+  if (!widgetId) {
+    console.error("Widget ID not found in script URL");
+    return;
+  }
 
-    // Widget configuration
-    const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-    const WIDGET_CONFIG = {
-        apiUrl: isLocal ? "http://localhost:8000/chat/user-chat/" : "http://208.87.134.149:8003/chat/user-chat/",
-        wsUrl: isLocal ? "ws://localhost:8000/ws/chat/" : "ws://208.87.134.149:8003/ws/chat/",
-        fileUploadUrl: isLocal ? "http://localhost:8000/chat/user-chat/upload-file/" : "http://208.87.134.149:8003/chat/user-chat/upload-file/",
-        themeColor: document.currentScript ? document.currentScript.getAttribute("data-theme-color") || "#008060" : "#008060", // WhatsApp green
-        logoUrl: "https://emailbulkshoot.s3.ap-southeast-2.amazonaws.com/assests+for+Email+Automation/Techserve%404x.png",
-    };
+  // Widget configuration
+  const isLocal =
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1";
+  const WIDGET_CONFIG = {
+    apiUrl: isLocal
+      ? "http://localhost:8000/chat/user-chat/"
+      : "http://208.87.134.149:8003/chat/user-chat/",
+    wsUrl: isLocal
+      ? "ws://localhost:8000/ws/chat/"
+      : "ws://208.87.134.149:8003/ws/chat/",
+    fileUploadUrl: isLocal
+      ? "http://localhost:8000/chat/user-chat/upload-file/"
+      : "http://208.87.134.149:8003/chat/user-chat/upload-file/",
+    themeColor: document.currentScript
+      ? document.currentScript.getAttribute("data-theme-color") || "#008060"
+      : "#008060",
+    logoUrl:
+      "https://emailbulkshoot.s3.ap-southeast-2.amazonaws.com/assests+for+Email+Automation/Techserve%404x.png",
+  };
 
-    // Check for existing room_id in local storage
-    let roomId = localStorage.getItem("chat_room_id");
-    let socket;
-    const sentMessages = {};
-
-    // Inject widget HTML
-    const widgetContainer = document.createElement("div");
-    widgetContainer.id = "chat-widget";
-    widgetContainer.innerHTML = `
+  // Inject widget HTML
+  const widgetContainer = document.createElement("div");
+  widgetContainer.id = "chat-widget";
+  widgetContainer.innerHTML = `
         <style>
             #chat-widget * {
                 box-sizing: border-box;
             }
-            #chat-bubble {
+            
+            /* Chat bubble container with proper positioning */
+            #chat-bubble-container {
                 position: fixed;
                 bottom: 20px;
                 right: 20px;
-                background: #008060;
+                z-index: 1000;
+            }
+            
+            #chat-bubble {
+                position: relative;
+                background: ${WIDGET_CONFIG.themeColor};
                 color: white;
                 padding: 15px;
                 border-radius: 50%;
                 cursor: pointer;
                 box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
                 font-size: 24px;
-                z-index: 1000;
                 transition: transform 0.2s;
+                display: block;
+                width: 60px;
+                height: 60px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }
             #chat-bubble:hover {
                 transform: scale(1.1);
             }
+            
+            /* Notification badge positioning - FIXED */
+            .notification-badge {
+                position: absolute;
+                top: -5px;
+                right: -5px;
+                background: #ff4757;
+                color: white;
+                border-radius: 50%;
+                width: 22px;
+                height: 22px;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                font-size: 12px;
+                font-weight: bold;
+                border: 2px solid white;
+                z-index: 1001;
+                animation: pulse 2s infinite;
+            }
+            
+            .notification-badge.show {
+                display: flex !important;
+            }
+            
+            @keyframes pulse {
+                0% { transform: scale(1); }
+                50% { transform: scale(1.1); }
+                100% { transform: scale(1); }
+            }
+            
             #chat-window {
-                // display: none;
-                // position: fixed;
-                // bottom: 80px;
-                // right: 20px;
-                // width: 340px;
-                // height: 550px;
+                display: none;
+                position: fixed;
+                bottom: 90px;
+                right: 20px;
+                width: 340px;
+                height: 450px;
                 background: white;
                 border-radius: 12px;
                 box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
                 z-index: 1000;
                 font-family: Arial, sans-serif;
-                display: flex;
                 flex-direction: column;
             }
             #chat-header {
@@ -95,58 +145,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 border-top-right-radius: 12px;
                 width: 100%;
                 z-index: 2;
-            }
-            #menu-btn {
-                position: absolute;
-                left: 10px;
-                cursor: pointer;
-                font-size: 20px;
-                color: #008060;
-                padding: 5px;
-            }
-            #menu-btn:hover {
-                color: #00664d;
-            }
-            #sidebar {
-                width: 250px;
-                height: 100%;
-                background: #F0F0F0;
-                box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
-                transform: translateX(-100%);
-                transition: transform 0.3s ease;
-                position: absolute;
-                z-index: 1;
-                overflow-y: auto;
-            }
-            #chat-window.open #sidebar {
-                transform: translateX(0);
-            }
-            #sidebar-close {
-                position: absolute;
-                top: 10px;
-                right: 10px;
-                font-size: 18px;
-                color: #333;
-                cursor: pointer;
-                padding: 5px;
-            }
-            #sidebar-close:hover {
-                color: #008060;
-            }
-            #sidebar ul {
-                list-style: none;
-                padding: 60px 20px 20px;
-                margin: 0;
-            }
-            #sidebar ul li {
-                padding: 12px 0;
-                font-size: 14px;
-                color: #333;
-                cursor: pointer;
-                transition: color 0.2s;
-            }
-            #sidebar ul li:hover {
-                color: #008060;
             }
             #chat-content {
                 flex: 1;
@@ -172,7 +170,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 border-radius: 10px;
             }
             #chat-messages::-webkit-scrollbar-thumb {
-                background: #008060;
+                background: ${WIDGET_CONFIG.themeColor};
                 border-radius: 10px;
             }
             #chat-messages::-webkit-scrollbar-thumb:hover {
@@ -180,7 +178,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             #chat-messages {
                 scrollbar-width: thin;
-                scrollbar-color: #008060 #f1f1f1;
+                scrollbar-color: ${WIDGET_CONFIG.themeColor} #f1f1f1;
             }
             #chat-messages-logo {
                 position: absolute;
@@ -203,7 +201,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
             }
             .user {
-                background: #008060;
+                background: ${WIDGET_CONFIG.themeColor};
                 color: white;
                 align-self: flex-end;
                 text-align: right;
@@ -267,12 +265,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 font-size: 12px;
             }
             .form-group input:focus {
-                border-color: #008060;
+                border-color: ${WIDGET_CONFIG.themeColor};
                 outline: none;
                 box-shadow: 0 0 0 2px rgba(0, 128, 96, 0.2);
             }
             .submit-btn {
-                background: #008060;
+                background: ${WIDGET_CONFIG.themeColor};
                 color: white;
                 border: none;
                 border-radius: 4px;
@@ -301,12 +299,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 border: 1px solid #ddd;
                 border-radius: 20px;
                 font-size: 14px;
-                margin-right: 10px;
                 outline: none;
                 transition: border-color 0.2s;
             }
             #chat-input:focus {
-                border-color: rgba(128, 26, 0, 0.37);
+                border-color: ${WIDGET_CONFIG.themeColor};
                 box-shadow: 0 0 0 2px rgba(0, 128, 96, 0.2);
             }
             #file-input {
@@ -371,10 +368,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 padding: 5px;
             }
             #mute-toggle:hover {
-                color: #008060;
+                color: ${WIDGET_CONFIG.themeColor};
             }
             #send-btn {
-                background: #008060;
+                background: ${WIDGET_CONFIG.themeColor};
                 color: white;
                 border: none;
                 border-radius: 20px;
@@ -392,21 +389,17 @@ document.addEventListener("DOMContentLoaded", function () {
                 margin: 0 5px;
             }
         </style>
-        <div id="chat-bubble">💬</div>
+        
+        <!-- Chat bubble container with notification badge -->
+        <div id="chat-bubble-container">
+            <div id="chat-bubble">💬</div>
+            <div class="notification-badge">1</div>
+        </div>
+        
         <div id="chat-window">
             <div id="chat-header">
-                <span id="menu-btn">☰</span>
                 Chat with Us
                 <span id="mute-toggle">🔊</span>
-            </div>
-            <div id="sidebar">
-                <span id="sidebar-close">✕</span>
-                <ul>
-                    <li>New Chat</li>
-                    <li>Profile</li>
-                    <li>Settings</li>
-                    <li>Logout</li>
-                </ul>
             </div>
             <div id="chat-content">
                 <div id="chat-messages">
@@ -440,518 +433,710 @@ document.addEventListener("DOMContentLoaded", function () {
             <div id="emoji-picker"></div>
         </div>
     `;
-    document.body.appendChild(widgetContainer);
+  document.body.appendChild(widgetContainer);
 
-    // Initialize audio context and sound settings
-    let audioContext;
-    let notificationEnabled = true;
+  // Globals
+  let audioContext = null;
+  let socket = null;
+  let roomId = localStorage.getItem("chat_room_id") || null;
+  let notificationEnabled = true;
+  const sentMessages = {};
 
-    // Set up the audio context when user interacts with the page
-    document.addEventListener('click', initAudioContext, { once: true });
+  // Widget state management
+  let widgetState = {
+    isOpen: false,
+    notificationShown: false,
+    connectionEstablished: false,
+    pageLoadTime: Date.now(),
+  };
 
-    function initAudioContext() {
-        try {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            console.log("Audio context initialized");
-        } catch (e) {
-            console.error("Web Audio API is not supported in this browser", e);
-        }
+  // DOM elements cache
+  const muteToggle = document.getElementById("mute-toggle");
+  const emojiPickerContainer = document.getElementById("emoji-picker");
+  const chatBubbleContainer = document.getElementById("chat-bubble-container");
+  const chatBubble = document.getElementById("chat-bubble");
+  const chatWindow = document.getElementById("chat-window");
+  const emojiButton = document.getElementById("emoji-button");
+  const input = document.getElementById("chat-input");
+  const sendBtn = document.getElementById("send-btn");
+  const formSubmit = document.getElementById("form-submit");
+  const fileInput = document.getElementById("file-input");
+  const removeFileBtn = document.getElementById("remove-file");
+  const filePreviewContainer = document.getElementById("file-preview-container");
+  const filePreviewName = document.getElementById("file-preview-name");
+
+  // Initialize AudioContext once
+  function initAudioContext() {
+    if (audioContext) return;
+    try {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      console.log("Audio context initialized");
+    } catch (e) {
+      console.error("Web Audio API is not supported in this browser", e);
+    }
+  }
+  initAudioContext();
+
+  // FIXED: Simplified widget initialization
+  function initializeWidgetBehavior() {
+    console.log("🔧 initializeWidgetBehavior() called");
+
+    // Ensure widget is closed initially
+    if (chatWindow) {
+      chatWindow.style.display = "none";
+      widgetState.isOpen = false;
+      console.log("✅ Widget closed on initialization");
     }
 
-    // Toggle notification sound
-    const muteToggle = document.getElementById("mute-toggle");
-    if (muteToggle) {
-        muteToggle.addEventListener("click", () => {
-            notificationEnabled = !notificationEnabled;
-            muteToggle.textContent = notificationEnabled ? "🔊" : "🔇";
-        });
+    // Show notification after 2 seconds
+    setTimeout(() => {
+      console.log("⏰ Showing notification badge after 2 seconds");
+      showNotificationBadge();
+    }, 2000);
+  }
+
+  // FIXED: Simplified notification badge function
+  function showNotificationBadge() {
+    console.log("🔔 showNotificationBadge() called");
+
+    if (widgetState.notificationShown) {
+      console.log("ℹ️ Notification already shown");
+      return;
+    }
+
+    const notificationBadge = document.querySelector(".notification-badge");
+    if (notificationBadge) {
+      console.log("✅ Found notification badge, showing it");
+      notificationBadge.classList.add("show");
+      widgetState.notificationShown = true;
+      console.log("🎉 Notification badge shown successfully!");
     } else {
-        console.error("Mute toggle (#mute-toggle) not found");
+      console.error("❌ Notification badge not found");
+    }
+  }
+
+  // FIXED: Hide notification badge
+  function hideNotificationBadge() {
+    console.log("🔕 hideNotificationBadge() called");
+    const notificationBadge = document.querySelector(".notification-badge");
+    if (notificationBadge) {
+      notificationBadge.classList.remove("show");
+      console.log("✅ Notification badge hidden");
+    }
+  }
+
+  // Toggle notification sound mute/unmute
+  if (muteToggle) {
+    muteToggle.textContent = notificationEnabled ? "🔊" : "🔇";
+    muteToggle.addEventListener("click", () => {
+      notificationEnabled = !notificationEnabled;
+      muteToggle.textContent = notificationEnabled ? "🔊" : "🔇";
+    });
+  }
+
+  // Load emoji-picker-element script and initialize picker once loaded
+  const emojiScript = document.createElement("script");
+  emojiScript.src = "https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js";
+  emojiScript.type = "module";
+  document.head.appendChild(emojiScript);
+
+  let emojiPicker = null;
+  emojiScript.onload = () => {
+    if (!emojiPickerContainer) {
+      console.error("Emoji picker container (#emoji-picker) not found");
+      return;
+    }
+    // Create emoji picker element
+    emojiPicker = document.createElement("emoji-picker");
+    emojiPickerContainer.appendChild(emojiPicker);
+    emojiPicker.addEventListener("emoji-click", (event) => {
+      if (input) {
+        input.value += event.detail.unicode;
+        emojiPickerContainer.style.display = "none";
+        notifyTyping();
+      }
+    });
+  };
+
+  // Toggle chat window visibility and initialize chat on open
+  if (chatBubble && chatWindow) {
+    chatBubble.addEventListener("click", (event) => {
+      // Prevent event bubbling
+      event.stopPropagation();
+
+      // Hide notification badge when opening chat
+      hideNotificationBadge();
+
+      if (!widgetState.isOpen) {
+        // First time opening - establish connection
+        openChatWidget();
+      } else {
+        // Toggle visibility
+        const isVisible = chatWindow.style.display === "flex";
+        chatWindow.style.display = isVisible ? "none" : "flex";
+      }
+    });
+  }
+
+  function openChatWidget() {
+    if (!chatWindow) return;
+
+    // Show chat window
+    chatWindow.style.display = "flex";
+    widgetState.isOpen = true;
+
+    // Show connecting message only if not already connected
+    if (!widgetState.connectionEstablished) {
+      establishConnection();
+    }
+  }
+
+  function establishConnection() {
+    // Prevent multiple connection attempts
+    if (widgetState.connectionEstablished) {
+      return;
     }
 
-    // Load emoji-picker-element
-    const emojiScript = document.createElement("script");
-    emojiScript.src = "https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js";
-    emojiScript.type = "module";
-    document.head.appendChild(emojiScript);
+    widgetState.connectionEstablished = true;
 
-    // Initialize emoji picker
-    emojiScript.onload = () => {
-        const emojiPicker = document.createElement("emoji-picker");
-        const emojiPickerContainer = document.getElementById("emoji-picker");
-        if (emojiPickerContainer) {
-            emojiPickerContainer.appendChild(emojiPicker);
-            emojiPicker.addEventListener("emoji-click", (event) => {
-                const input = document.getElementById("chat-input");
-                if (input) {
-                    input.value += event.detail.unicode;
-                    emojiPickerContainer.style.display = "none";
-                    notifyTyping();
-                }
-            });
-        } else {
-            console.error("Emoji picker container (#emoji-picker) not found");
+    // Initialize chat connection
+    if (!socket) {
+      initializeChat();
+    }
+
+    // Show trigger message after connection
+    setTimeout(() => {
+      // Only show welcome message if chat window is still open
+      if (widgetState.isOpen && chatWindow.style.display === "flex") {
+        // Clear the connecting message
+        const messages = document.querySelectorAll("#chat-messages .message.system");
+        if (messages.length > 1) {
+          messages[0].remove(); // Remove "Connecting..." message
         }
+      }
+    }, 1500);
+  }
+
+  // Hide emoji picker when clicking outside
+  document.addEventListener("click", (event) => {
+    if (
+      emojiPickerContainer &&
+      emojiButton &&
+      emojiPickerContainer.style.display === "block" &&
+      event.target !== emojiButton &&
+      !emojiPickerContainer.contains(event.target)
+    ) {
+      emojiPickerContainer.style.display = "none";
+    }
+  });
+
+  // Initialize chat session, create room if needed
+  function initializeChat() {
+    if (roomId) {
+      connectWebSocket(roomId);
+      return;
+    }
+    fetch(WIDGET_CONFIG.apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ widget_id: widgetId }),
+    })
+      .then((response) => {
+        if (!response.ok) {
+          response.json().then((data) => console.log("Response error:", data));
+          throw new Error("Failed to create room");
+        }
+        return response.json();
+      })
+      .then((data) => {
+        roomId = data.room_id;
+        localStorage.setItem("chat_room_id", roomId);
+        connectWebSocket(roomId);
+      })
+      .catch((error) => {
+        console.error("Error creating room:", error);
+        appendSystemMessage("Failed to start chat. Please try again.");
+      });
+  }
+
+  // WebSocket connection setup
+  function connectWebSocket(roomId) {
+    if (socket) {
+      socket.close();
+    }
+    socket = new WebSocket(`${WIDGET_CONFIG.wsUrl}${roomId}/`);
+
+    socket.onopen = () => {
+      console.log("WebSocket connected");
+      updateConnectionStatus(true);
     };
 
-    // Toggle chat window
-    const bubble = document.getElementById("chat-bubble");
-    const chatWindow = document.getElementById("chat-window");
-    if (bubble && chatWindow) {
-        bubble.addEventListener("click", () => {
-            chatWindow.style.display = chatWindow.style.display === "none" ? "block" : "none";
-            if (chatWindow.style.display === "block" && !socket) {
-                initializeChat();
-            }
-        });
-    } else {
-        console.error("Chat bubble (#chat-bubble) or chat window (#chat-window) not found");
+    socket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleIncomingMessage(data);
+      } catch (e) {
+        console.error("Failed to parse WebSocket message:", e);
+      }
+    };
+
+    socket.onclose = () => {
+      console.log("WebSocket disconnected");
+      updateConnectionStatus(false);
+      appendSystemMessage("Disconnected. Please refresh to reconnect.");
+    };
+
+    socket.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      updateConnectionStatus(false);
+      appendSystemMessage("Chat error occurred.");
+    };
+  }
+
+  function updateConnectionStatus(connected) {
+    const statusElements = document.querySelectorAll(".connection-status, .status-indicator");
+    statusElements.forEach((element) => {
+      if (connected) {
+        element.classList.add("connected");
+        element.classList.remove("disconnected");
+      } else {
+        element.classList.add("disconnected");
+        element.classList.remove("connected");
+      }
+    });
+  }
+
+  // Incoming message handler
+  function handleIncomingMessage(data) {
+    const messagesDiv = document.getElementById("chat-messages");
+    const formDiv = document.getElementById("chat-form");
+    const footer = document.getElementById("chat-footer");
+
+    if (data.show_form && data.form_type === "user_info") {
+      if (formDiv && footer) {
+        formDiv.style.display = "block";
+        footer.style.display = "none";
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      }
+      return;
     }
 
-    // Toggle sidebar
-    const menuBtn = document.getElementById("menu-btn");
-    const sidebar = document.getElementById("sidebar");
-    const sidebarClose = document.getElementById("sidebar-close");
-    if (menuBtn && chatWindow) {
-        menuBtn.addEventListener("click", () => {
-            chatWindow.classList.add("open");
-        });
-    } else {
-        console.error("Menu button (#menu-btn) or chat window (#chat-window) not found");
-    }
-    if (sidebarClose && chatWindow) {
-        sidebarClose.addEventListener("click", () => {
-            chatWindow.classList.remove("open");
-        });
-    } else {
-        console.error("Sidebar close button (#sidebar-close) or chat window (#chat-window) not found");
+    if (data.form_data_received) {
+      if (formDiv && footer) {
+        formDiv.style.display = "none";
+        footer.style.display = "flex";
+      }
+      return;
     }
 
-    // Toggle emoji picker
-    const emojiButton = document.getElementById("emoji-button");
-    const emojiPicker = document.getElementById("emoji-picker");
-    if (emojiButton && emojiPicker) {
-        emojiButton.addEventListener("click", () => {
-            emojiPicker.style.display = emojiPicker.style.display === "block" ? "none" : "block";
-        });
-    } else {
-        console.error("Emoji button (#emoji-button) or emoji picker (#emoji-picker) not found");
+    if (data.typing && data.sender !== "User") {
+      const typingId = `typing-${data.sender}`;
+      if (!document.getElementById(typingId)) {
+        const typingElement = document.createElement("div");
+        typingElement.id = typingId;
+        typingElement.className = "message system";
+        typingElement.innerHTML = `<i>${sanitizeHTML(data.sender)} is typing...</i>`;
+        messagesDiv.appendChild(typingElement);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        setTimeout(() => {
+          const el = document.getElementById(typingId);
+          if (el) el.remove();
+        }, 2000);
+      }
+      return;
     }
 
-    // Hide emoji picker when clicking outside
-    document.addEventListener("click", (event) => {
-        const emojiPicker = document.getElementById("emoji-picker");
-        const emojiButton = document.getElementById("emoji-button");
-        if (
-            emojiPicker &&
-            emojiButton &&
-            emojiPicker.style.display === "block" &&
-            event.target !== emojiButton &&
-            !emojiPicker.contains(event.target)
-        ) {
-            emojiPicker.style.display = "none";
-        }
+    if (data.status === "seen" && sentMessages[data.message_id]) {
+      updateMessageStatus(data.message_id, data.status);
+      return;
+    }
+
+    if (data.error) {
+      appendSystemMessage(`Error: ${sanitizeHTML(data.error)}`);
+      return;
+    }
+
+    if (data.message || data.file_url) {
+      appendMessage(
+        data.sender,
+        data.message,
+        data.file_url,
+        data.file_name,
+        data.sender === "User" ? "user" : data.sender === "System" ? "system" : "agent",
+        data.message_id,
+        data.sender === "User" ? "delivered" : "delivered"
+      );
+      if (data.sender !== "User") {
+        socket.send(
+          JSON.stringify({
+            status: "seen",
+            message_id: data.message_id,
+            sender: "User",
+          })
+        );
+        playNotificationSound();
+      }
+    }
+  }
+
+  // Append chat message
+  function appendMessage(sender, message, fileUrl, fileName, className, messageId, status) {
+    const messagesDiv = document.getElementById("chat-messages");
+    if (!messagesDiv) {
+      console.error("Chat messages container (#chat-messages) not found");
+      return;
+    }
+    if (document.getElementById(`msg-${messageId}`)) {
+      updateMessageStatus(messageId, status, message, fileUrl, fileName);
+      return;
+    }
+
+    const div = document.createElement("div");
+    div.className = `message ${className}`;
+    div.id = `msg-${messageId}`;
+    const time = new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const ticks = sender === "User" ? getTicks(status) : "";
+
+    let content = message ? sanitizeHTML(message) : "";
+    if (fileUrl) {
+      const isImage = /\.(jpg|jpeg|png|gif)$/i.test(fileName);
+      content += `<div class="file-preview">${
+        isImage
+          ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" />`
+          : `<a href="${sanitizeHTML(fileUrl)}" target="_blank" rel="noopener noreferrer">${sanitizeHTML(fileName)}</a>`
+      }</div>`;
+    }
+
+    div.innerHTML = `${content}<span class="timestamp">${time} ${ticks}</span>`;
+    messagesDiv.appendChild(div);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+    if (sender === "User") {
+      sentMessages[messageId] = true;
+    }
+  }
+
+  // Append system message wrapper
+  function appendSystemMessage(message) {
+    appendMessage("System", message, null, null, "system", `sys-${Date.now()}`, "delivered");
+  }
+
+  // Update existing message status/content
+  function updateMessageStatus(messageId, status, message = null, fileUrl = null, fileName = null) {
+    const messageDiv = document.getElementById(`msg-${messageId}`);
+    if (!messageDiv) return;
+
+    const time = new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
     });
 
-    // Initialize chat
-    function initializeChat() {
-        if (roomId) {
-            connectWebSocket(roomId);
-        } else {
-            fetch(WIDGET_CONFIG.apiUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ widget_id: widgetId }),
-            })
-                .then((response) => {
-                    console.log("Response status:", response.status);
-                    if (!response.ok) {
-                        response.json().then(data => console.log("Response error:", data));
-                        throw new Error("Failed to create room");
-                    }
-                    return response.json();
-                })
-                .then((data) => {
-                    roomId = data.room_id;
-                    localStorage.setItem("chat_room_id", roomId);
-                    connectWebSocket(roomId);
-                })
-                .catch((error) => {
-                    console.error("Error creating room:", error);
-                    appendSystemMessage("Failed to start chat. Please try again.");
-                });
-        }
+    let content = message !== null ? sanitizeHTML(message) : messageDiv.innerHTML.split('<span class="timestamp">')[0];
+    if (fileUrl) {
+      const isImage = /\.(jpg|jpeg|png|gif)$/i.test(fileName);
+      content += `<div class="file-preview">${
+        isImage
+          ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" />`
+          : `<a href="${sanitizeHTML(fileUrl)}" target="_blank" rel="noopener noreferrer">${sanitizeHTML(fileName)}</a>`
+      }</div>`;
     }
 
-    // Connect to WebSocket
-    function connectWebSocket(roomId) {
-        // Close existing socket if it exists
-        if (socket) {
-            socket.close();
-        }
-        socket = new WebSocket(`${WIDGET_CONFIG.wsUrl}${roomId}/`);
+    messageDiv.innerHTML = `${content}<span class="timestamp">${time} ${getTicks(status)}</span>`;
+    const messagesDiv = document.getElementById("chat-messages");
+    if (messagesDiv) messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  }
 
-        socket.onopen = () => {
-            console.log("WebSocket connected");
-        };
-
-        socket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            const messagesDiv = document.getElementById("chat-messages");
-            const formDiv = document.getElementById("chat-form");
-            const footer = document.getElementById("chat-footer");
-
-            if (data.show_form && data.form_type === "user_info") {
-                if (formDiv && footer) {
-                    formDiv.style.display = "block";
-                    footer.style.display = "none";
-                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-                }
-            } else if (data.form_data_received) {
-                if (formDiv && footer) {
-                    formDiv.style.display = "none";
-                    footer.style.display = "flex";
-                }
-            } else if (data.typing && data.sender !== "User") {
-                const typingId = `typing-${data.sender}`;
-                let typingElement = document.getElementById(typingId);
-                if (!typingElement) {
-                    typingElement = document.createElement("div");
-                    typingElement.id = typingId;
-                    typingElement.className = "message system";
-                    typingElement.innerHTML = `<i>${sanitizeHTML(data.sender)} is typing...</i>`;
-                    messagesDiv.appendChild(typingElement);
-                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-                    setTimeout(() => typingElement.remove(), 2000);
-                }
-            } else if (data.status === "seen" && sentMessages[data.message_id]) {
-                updateMessageStatus(data.message_id, data.status);
-            } else if (data.error) {
-                appendSystemMessage(`Error: ${sanitizeHTML(data.error)}`);
-            } else if (data.message || data.file_url) {
-                appendMessage(
-                    data.sender,
-                    data.message,
-                    data.file_url,
-                    data.file_name,
-                    data.sender === "User" ? "user" : data.sender === "System" ? "system" : "agent",
-                    data.message_id,
-                    data.sender === "User" ? "delivered" : "delivered"
-                );
-                if (data.sender !== "User") {
-                    socket.send(
-                        JSON.stringify({
-                            status: "seen",
-                            message_id: data.message_id,
-                            sender: "User",
-                        })
-                    );
-                    playNotificationSound();
-                }
-            }
-        };
-
-        socket.onclose = () => {
-            console.log("WebSocket disconnected");
-            appendSystemMessage("Disconnected. Please refresh to reconnect.");
-        };
-
-        socket.onerror = (error) => {
-            console.error("WebSocket error:", error);
-            appendSystemMessage("Chat error occurred.");
-        };
+  // Return tick marks HTML based on status
+  function getTicks(status) {
+    switch (status) {
+      case "sent":
+        return '<span class="tick">✓</span>';
+      case "delivered":
+        return '<span class="tick">✓✓</span>';
+      case "seen":
+        return '<span class="tick blue">✓✓</span>';
+      default:
+        return "";
     }
+  }
 
-    // Append message
-    function appendMessage(sender, message, fileUrl, fileName, className, messageId, status) {
-        const messagesDiv = document.getElementById("chat-messages");
-        if (!messagesDiv) {
-            console.error("Chat messages container (#chat-messages) not found");
-            return;
+  // Send message logic
+  function sendMessage() {
+    if (!input || !socket || !input.value.trim()) return;
+
+    const messageId = generateMessageId();
+    const messageText = input.value.trim();
+
+    socket.send(
+      JSON.stringify({
+        message: messageText,
+        sender: "User",
+        message_id: messageId,
+      })
+    );
+    appendMessage("User", messageText, null, null, "user", messageId, "sent");
+    input.value="";
+  }
+
+  // Input enter key event & send button event
+  if (input) {
+    input.addEventListener("keypress", (e) => {
+      if (e.key === "Enter" && input.value.trim() && socket) {
+        sendMessage();
+      }
+    });
+  } else {
+    console.error("Chat input (#chat-input) not found");
+  }
+
+  if (sendBtn) {
+    sendBtn.addEventListener("click", sendMessage);
+  } else {
+    console.error("Send button (#send-btn) not found");
+  }
+
+  // Debounced typing notification
+  let typingTimeout;
+  function notifyTyping() {
+    if (!socket || !input) return;
+
+    const content = input.value.trim();
+
+    socket.send(
+      JSON.stringify({
+        typing: content.length > 0,
+        content: content,
+        sender: "User",
+      })
+    );
+
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+      socket.send(
+        JSON.stringify({
+          typing: false,
+          content: "",
+          sender: "User",
+        })
+      );
+    }, 1000);
+  }
+  if (input) {
+    input.addEventListener("input", notifyTyping);
+  }
+
+  // Form submission handler for user info form
+  if (formSubmit) {
+    formSubmit.addEventListener("click", () => {
+      const nameField = document.getElementById("form-name");
+      const emailField = document.getElementById("form-email");
+      const name = nameField?.value.trim() || "";
+      const email = emailField?.value.trim() || "";
+
+      if (!name || !email) {
+        appendSystemMessage("Please enter both name and email.");
+        return;
+      }
+      if (!isValidEmail(email)) {
+        appendSystemMessage("Please enter a valid email address.");
+        return;
+      }
+      if (!socket) return;
+
+      const messageId = generateMessageId();
+      socket.send(
+        JSON.stringify({
+          form_data: {
+            name: name,
+            email: email,
+          },
+          sender: "User",
+          message_id: messageId,
+        })
+      );
+
+      // Clear form fields
+      if (nameField) nameField.value = "";
+      if (emailField) emailField.value = "";
+
+      appendSystemMessage("Information submitted successfully!");
+    });
+  } else {
+    console.error("Form submit button (#form-submit) not found");
+  }
+
+  // File upload handling
+  if (fileInput) {
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      // File size validation (10MB limit)
+      const maxSize = 10 * 1024 * 1024;
+      if (file.size > maxSize) {
+        appendSystemMessage("File size too large. Maximum size is 10MB.");
+        fileInput.value = "";
+        return;
+      }
+
+      // Show file preview
+      if (filePreviewContainer && filePreviewName) {
+        filePreviewName.textContent = file.name;
+        filePreviewContainer.style.display = "flex";
+      }
+    });
+  } else {
+    console.error("File input (#file-input) not found");
+  }
+
+  // Remove file preview
+  if (removeFileBtn && filePreviewContainer && fileInput) {
+    removeFileBtn.addEventListener("click", () => {
+      fileInput.value = "";
+      filePreviewContainer.style.display = "none";
+    });
+  } else {
+    console.error(
+      "Remove file button (#remove-file) or related elements not found"
+    );
+  }
+
+  // File upload function
+  function uploadFile() {
+    if (!fileInput || !fileInput.files[0] || !socket) return;
+
+    const file = fileInput.files[0];
+    const messageId = generateMessageId();
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("room_id", roomId);
+    formData.append("message_id", messageId);
+
+    fetch(`${WIDGET_CONFIG.apiUrl}/upload`, {
+      method: "POST",
+      body: formData,
+    })
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("Failed to upload file");
         }
-        // Check if message already exists
-        const existingMessage = document.getElementById(`msg-${messageId}`);
-        if (existingMessage) {
-            console.log(`Message ${messageId} already exists, updating status`);
-            updateMessageStatus(messageId, status, message, fileUrl, fileName);
-            return;
-        }
-
-        console.log(`Appending message: ${messageId}, sender: ${sender}, status: ${status}`);
-        const div = document.createElement("div");
-        div.className = `message ${className}`;
-        div.id = `msg-${messageId}`;
-        const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        const ticks = sender === "User" ? getTicks(status) : "";
-
-        let content = message ? `${sanitizeHTML(message)}` : "";
-        if (fileUrl) {
-            const isImage = fileName.match(/\.(jpg|jpeg|png|gif)$/i);
-            content += `<div class="file-preview">${
-                isImage
-                    ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" />`
-                    : `<a href="${sanitizeHTML(fileUrl)}" target="_blank">${sanitizeHTML(fileName)}</a>`
-            }</div>`;
-        }
-        div.innerHTML = `${content}<span class="timestamp">${time} ${ticks}</span>`;
-        messagesDiv.appendChild(div);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight; // Auto-scroll to bottom
-        if (sender === "User") {
-            sentMessages[messageId] = true;
-        }
-    }
-
-    // Append system message
-    function appendSystemMessage(message) {
-        appendMessage("System", message, null, null, "system", `sys-${Date.now()}`, "delivered");
-    }
-
-    // Update message status or content
-    function updateMessageStatus(messageId, status, message = null, fileUrl = null, fileName = null) {
-        const messageDiv = document.getElementById(`msg-${messageId}`);
-        if (messageDiv) {
-            const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-            let content = message ? `${sanitizeHTML(message)}` : messageDiv.innerHTML.split('<span class="timestamp">')[0];
-            if (fileUrl) {
-                const isImage = fileName.match(/\.(jpg|jpeg|png|gif)$/i);
-                content += `<div class="file-preview">${
-                    isImage
-                        ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" />`
-                        : `<a href="${sanitizeHTML(fileUrl)}" target="_blank">${sanitizeHTML(fileName)}</a>`
-                }</div>`;
-            }
-            messageDiv.innerHTML = `${content}<span class="timestamp">${time} ${getTicks(status)}</span>`;
-            const messagesDiv = document.getElementById("chat-messages");
-            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Auto-scroll to bottom
-        }
-    }
-
-    // Get tick marks
-    function getTicks(status) {
-        switch (status) {
-            case "sent":
-                return '<span class="tick">✓</span>';
-            case "delivered":
-                return '<span class="tick">✓✓</span>';
-            case "seen":
-                return '<span class="tick blue">✓✓</span>';
-            default:
-                return "";
-        }
-    }
-
-    // Send message
-    const input = document.getElementById("chat-input");
-    const sendBtn = document.getElementById("send-btn");
-    if (input) {
-        input.addEventListener("keypress", (e) => {
-            if (e.key === "Enter" && input.value.trim() && socket) {
-                sendMessage();
-            }
-        });
-    } else {
-        console.error("Chat input (#chat-input) not found");
-    }
-    if (sendBtn) {
-        sendBtn.addEventListener("click", () => {
-            if (input && input.value.trim() && socket) {
-                sendMessage();
-            }
-        });
-    } else {
-        console.error("Send button (#send-btn) not found");
-    }
-
-    function sendMessage() {
-        const messageId = generateMessageId();
+        return response.json();
+      })
+      .then((data) => {
         socket.send(
-            JSON.stringify({
-                message: input.value,
-                sender: "User",
-                message_id: messageId,
-            })
+          JSON.stringify({
+            file_url: data.file_url,
+            file_name: file.name,
+            sender: "User",
+            message_id: messageId,
+          })
         );
-        appendMessage("User", input.value, null, null, "user", messageId, "sent");
-        input.value = "";
-    }
+        appendMessage(
+          "User",
+          null,
+          data.file_url,
+          file.name,
+          "user",
+          messageId,
+          "sent"
+        );
 
-    // Send typing status
-    let typingTimeout;
-    function notifyTyping() {
-        const content = input.value.trim();
-        if (socket) {
-            socket.send(
-                JSON.stringify({
-                    typing: content.length > 0,
-                    content: content,
-                    sender: "User",
-                })
-            );
-            clearTimeout(typingTimeout);
-            typingTimeout = setTimeout(() => {
-                socket.send(
-                    JSON.stringify({
-                        typing: false,
-                        content: "",
-                        sender: "User",
-                    })
-                );
-            }, 1000);
+        // Clear file input and hide preview
+        fileInput.value = "";
+        if (filePreviewContainer) {
+          filePreviewContainer.style.display = "none";
         }
-    }
-    if (input) {
-        input.addEventListener("input", notifyTyping);
-    }
+      })
+      .catch((error) => {
+        console.error("Error uploading file:", error);
+        appendSystemMessage("Failed to upload file. Please try again.");
+      });
+  }
 
-    // Handle form submission
-    const formSubmit = document.getElementById("form-submit");
-    if (formSubmit) {
-        formSubmit.addEventListener("click", () => {
-            const name = document.getElementById("form-name").value.trim();
-            const email = document.getElementById("form-email").value.trim();
-            if (name && email && socket) {
-                if (!isValidEmail(email)) {
-                    appendSystemMessage("Please enter a valid email address.");
-                    return;
-                }
-                const messageId = generateMessageId();
-                socket.send(
-                    JSON.stringify({
-                        form_data: { name, email },
-                        sender: "User",
-                        message_id: messageId,
-                    })
-                );
-                const formattedMessage = `Name: ${name}, Email: ${email}`;
-                appendMessage("User", formattedMessage, null, null, "user", messageId, "sent");
-                document.getElementById("form-name").value = "";
-                document.getElementById("form-email").value = "";
-            } else {
-                appendSystemMessage("Please enter both name and email.");
-            }
-        });
+  // Utility functions
+  function generateMessageId() {
+    return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  function sanitizeHTML(text) {
+    if (!text) return "";
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function isValidEmail(email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+
+  function playNotificationSound() {
+    if (!notificationEnabled || !audioContext) return;
+
+    try {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+      oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.1);
+
+      gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+      gainNode.gain.linearRampToValueAtTime(
+        0.3,
+        audioContext.currentTime + 0.01
+      );
+      gainNode.gain.exponentialRampToValueAtTime(
+        0.01,
+        audioContext.currentTime + 0.3
+      );
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.3);
+    } catch (e) {
+      console.error("Error playing notification sound:", e);
+    }
+  }
+
+  // Initialize on DOM content loaded
+  document.addEventListener("DOMContentLoaded", () => {
+    console.log("Chat widget initialized");
+
+    // Initialize widget behavior (closed state, notification timer)
+    initializeWidgetBehavior();
+
+    // Don't auto-connect - only connect when user clicks the widget
+  });
+
+  // Handle page visibility changes to manage WebSocket connection
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      console.log("Page hidden, maintaining WebSocket connection");
     } else {
-        console.error("Form submit button (#form-submit) not found");
+      console.log("Page visible");
+      // Reconnect if socket is closed and user has already opened widget
+      if (
+        widgetState.connectionEstablished &&
+        roomId &&
+        (!socket || socket.readyState === WebSocket.CLOSED)
+      ) {
+        connectWebSocket(roomId);
+      }
     }
+  });
 
-    // Email validation
-    function isValidEmail(email) {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(email);
+  // Clean up on page unload
+  window.addEventListener("beforeunload", () => {
+    if (socket) {
+      socket.close();
     }
-
-    // Handle file selection
-    const fileInput = document.getElementById("file-input");
-    if (fileInput) {
-        fileInput.addEventListener("change", () => {
-            const file = fileInput.files[0];
-            const previewContainer = document.getElementById("file-preview-container");
-            const previewName = document.getElementById("file-preview-name");
-            if (file && previewContainer && previewName) {
-                previewName.textContent = file.name;
-                previewContainer.style.display = "block";
-            } else if (previewContainer) {
-                previewContainer.style.display = "none";
-            }
-        });
-    } else {
-        console.error("File input (#file-input) not found");
+    if (audioContext) {
+      audioContext.close();
     }
-
-    // Remove selected file
-    const removeFile = document.getElementById("remove-file");
-    if (removeFile) {
-        removeFile.addEventListener("click", () => {
-            if (fileInput) {
-                fileInput.value = "";
-            }
-            const previewContainer = document.getElementById("file-preview-container");
-            if (previewContainer) {
-                previewContainer.style.display = "none";
-            }
-        });
-    } else {
-        console.error("Remove file button (#remove-file) not found");
-    }
-
-    // Handle file upload
-    if (fileInput) {
-        fileInput.addEventListener("change", () => {
-            const file = fileInput.files[0];
-            if (file && socket) {
-                const formData = new FormData();
-                formData.append("file", file);
-                fetch(WIDGET_CONFIG.fileUploadUrl, {
-                    method: "POST",
-                    body: formData,
-                })
-                    .then((response) => {
-                        if (!response.ok) throw new Error("File upload failed");
-                        return response.json();
-                    })
-                    .then((data) => {
-                        const messageId = generateMessageId();
-                        socket.send(
-                            JSON.stringify({
-                                message: "",
-                                sender: "User",
-                                message_id: messageId,
-                                file_url: data.file_url,
-                                file_name: data.file_name,
-                            })
-                        );
-                        appendMessage("User", "", data.file_url, data.file_name, "user", messageId, "sent");
-                        fileInput.value = "";
-                        const previewContainer = document.getElementById("file-preview-container");
-                        if (previewContainer) {
-                            previewContainer.style.display = "none";
-                        }
-                    })
-                    .catch((error) => {
-                        console.error("File upload error:", error);
-                        appendSystemMessage("Failed to upload file.");
-                    });
-            }
-        });
-    }
-
-    // Play notification sound using Web Audio API
-    function playNotificationSound() {
-        if (!notificationEnabled || !audioContext) {
-            return;
-        }
-
-        try {
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(880, audioContext.currentTime); // A5 note
-            oscillator.frequency.setValueAtTime(1318.51, audioContext.currentTime + 0.1); // E6 note
-
-            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-            gainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 0.05);
-            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
-
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.3);
-        } catch (error) {
-            console.error("Error playing notification sound:", error);
-        }
-    }
-
-    // Sanitize HTML
-    function sanitizeHTML(str) {
-        const div = document.createElement("div");
-        div.textContent = str;
-        return div.innerHTML;
-    }
-
-    // Generate message ID
-    function generateMessageId() {
-        return `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    }
+  });
 });

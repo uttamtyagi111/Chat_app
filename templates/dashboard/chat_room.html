@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chat Room</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f9f9f9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+
+        .chat-container {
+            width: 90%;
+            max-width: 700px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 80vh;
+            overflow-y: auto;
+        }
+
+        .message {
+            margin: 10px 0;
+            padding: 12px 16px;
+            border-radius: 18px;
+            max-width: 75%;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            line-height: 0.3;
+            display: inline-block;
+        }
+
+        .message.user {
+            background: #d4fcd2;
+            align-self: flex-end;
+        }
+
+        .message.agent {
+            background: #e3e3e3;
+            align-self: flex-start;
+        }
+
+        .message.system {
+            background: #fff0d5;
+            align-self: center;
+            text-align: center;
+            font-style: italic;
+            color: #555;
+            max-width: 90%;
+        }
+
+        .sender-label {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .timestamp {
+            font-size: 0.75em;
+            color: #999;
+            margin-top: 6px;
+            text-align: right;
+        }
+
+        /* Optional scrollbar styling */
+        .chat-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        {% for msg in messages %}
+            <div class="message
+                {% if msg.sender == 'User' %}
+                    user
+                {% elif msg.sender == 'Agent' %}
+                    agent
+                {% else %}
+                    system
+                {% endif %}
+            ">
+                {% if msg.sender != 'System' %}
+                    <div class="sender-label">{{ msg.sender }}</div>
+                {% endif %}
+                <div class="message-text">{{ msg.message }}</div>
+                <div class="timestamp">{{ msg.timestamp|date:"M d, Y H:i:s" }}</div>
+            </div>
+        {% empty %}
+            <div class="message system">No messages yet.</div>
+        {% endfor %}
+    </div>
+</body>
+</html>

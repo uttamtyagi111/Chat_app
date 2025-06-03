@@ -52,9 +52,16 @@
             font-style: italic;
             width: 100%;
         }
+        .Wish-bot{
+            text-align: right;
+            align-self: flex-end;
+            color:rgb(76, 111, 175);
+        }
+
         .system-message {
             background-color: #e6e6e6;
             font-style: italic;
+            text-align: center;
         }
         .preview {
             background-color: #D0E6FF;
@@ -301,7 +308,7 @@
 
         function appendMessage(sender, message, fileUrl, fileName, className, messageId, status = "sent") {
             const div = document.createElement("div");
-            if (sender === "System" || sender === currentUser) {
+            if (sender === "Wish-bot" || sender === currentUser) {
                 div.classList.add("message", "agent");
             } else {
                 div.classList.add("message", "user");

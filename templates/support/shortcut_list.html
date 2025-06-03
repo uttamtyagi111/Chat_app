@@ -1,0 +1,11 @@
+<h2>Shortcuts</h2>
+<a href="{% url 'add-shortcut' %}">Add Shortcut</a>
+<ul>
+  {% for shortcut in shortcuts %}
+    <li>
+      <strong>{{ shortcut.title }}</strong> — {{ shortcut.content }}
+      [<a href="{% url 'edit-shortcut' shortcut.id %}">Edit</a>]
+      [<a href="{% url 'delete-shortcut' shortcut.id %}">Delete</a>]
+    </li>
+  {% endfor %}
+</ul>

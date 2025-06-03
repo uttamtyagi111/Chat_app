@@ -1,0 +1,24 @@
+<h2>Tickets</h2>
+<a href="{% url 'add-ticket' %}">Add Ticket</a>
+<ul>
+  {% for ticket in tickets %}
+    <li>
+      <strong>{{ ticket.subject }}</strong> ({{ ticket.status }}) [{{ ticket.priority }}]
+      <br>Tags: {{ ticket.tags|join:", " }}
+      <br>
+      [<a href="{% url 'edit-ticket' ticket._id %}">Edit</a>]
+      [<a href="{% url 'delete-ticket' ticket._id %}">Delete</a>]
+    </li>
+  {% endfor %}
+</ul>
+
+Assigned to: 
+{% if ticket.assigned_to %}
+  {% for agent in agents %}
+    {% if agent._id == ticket.assigned_to %}
+      {{ agent.name }}
+    {% endif %}
+  {% endfor %}
+{% else %}
+  Unassigned
+{% endif %}

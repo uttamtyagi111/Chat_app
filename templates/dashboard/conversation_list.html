@@ -1,0 +1,23 @@
+<h2>All Chat Conversations</h2>
+<table border="1">
+  <thead>
+    <tr>
+      <th>Room ID</th>
+      <th>Last Message</th>
+      <th>Last Timestamp</th>
+      <th>Total Messages</th>
+      <th>View Chat</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for convo in conversations %}
+    <tr>
+      <td>{{ convo.room_id }}</td>
+      <td>{{ convo.last_message }}</td>
+      <td>{{ convo.last_timestamp }}</td>
+      <td>{{ convo.total_messages }}</td>
+      <td><a href="{% url 'chat_room_view' convo.room_id %}">View</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>

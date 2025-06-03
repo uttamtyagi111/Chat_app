@@ -1,0 +1,7 @@
+<h2>Add Tag</h2>
+<form method="POST">
+  {% csrf_token %}
+  <input type="text" name="name" placeholder="Tag Name" required><br>
+  <input type="color" name="color" value="#cccccc"><br>
+  <button type="submit">Add</button>
+</form>

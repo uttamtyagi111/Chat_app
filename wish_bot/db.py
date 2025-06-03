@@ -186,3 +186,195 @@ def get_agent_notes_collection():
     
     return collection
 
+def get_ticket_collection():
+    client = get_mongo_client()
+    db = client['wish_bot_db']
+    collection = db['tickets']
+    
+    # Create indexes you want on ticket_id, created_at, updated_at, status etc.
+    existing_indexes = collection.index_information()
+    
+    if 'ticket_id_1' not in existing_indexes:
+        collection.create_index([('ticket_id', 1)], unique=True, name='ticket_id_1')
+    if 'created_at_-1' not in existing_indexes:
+        collection.create_index([('created_at', -1)], name='created_at_-1')
+    if 'updated_at_-1' not in existing_indexes:
+        collection.create_index([('updated_at', -1)], name='updated_at_-1')
+    
+    return collection
+
+# def get_contact_collection():
+#     client = get_mongo_client()
+#     db = client['wish_bot_db']
+#     collection = db['contacts']
+
+#     # Index on contact_id or email/phone for uniqueness
+#     existing_indexes = collection.index_information()
+
+#     if 'contact_id_1' not in existing_indexes:
+#         collection.create_index([('contact_id', 1)], unique=True, name='contact_id_1')
+#     if 'email_1' not in existing_indexes:
+#         collection.create_index([('email', 1)], unique=True, name='email_1')
+#     if 'created_at_-1' not in existing_indexes:
+#         collection.create_index([('created_at', -1)], name='created_at_-1')
+    
+#     return collection
+
+# Similarly for shortcuts, tags
+
+def get_shortcut_collection():
+    client = get_mongo_client()
+    db = client['wish_bot_db']
+    collection = db['shortcuts']
+
+    # Index on shortcut_id or name
+    existing_indexes = collection.index_information()
+    
+    if 'shortcut_id_1' not in existing_indexes:
+        collection.create_index([('shortcut_id', 1)], unique=True, name='shortcut_id_1')
+    if 'created_at_-1' not in existing_indexes:
+        collection.create_index([('created_at', -1)], name='created_at_-1')
+
+    return collection
+
+def get_tag_collection():
+    client = get_mongo_client()
+    db = client['wish_bot_db']
+    collection = db['tags']
+
+    existing_indexes = collection.index_information()
+
+    if 'tag_id_1' not in existing_indexes:
+        collection.create_index([('tag_id', 1)], unique=True, name='tag_id_1')
+    if 'name_1' not in existing_indexes:
+        collection.create_index([('name', 1)], unique=True, name='name_1')
+
+    return collection
+
+def get_user_collection():
+    client = get_mongo_client()
+    db = client['wish_bot_db']
+    collection = db['users']
+
+    existing_indexes = collection.index_information()
+
+    if 'user_id_1' not in existing_indexes:
+        collection.create_index([('user_id', 1)], unique=True, name='user_id_1')
+    if 'email_1' not in existing_indexes:
+        collection.create_index([('email', 1)], unique=True, name='email_1')
+
+    return collection
+
+# def get_agent_collection():
+#     client = get_mongo_client()
+#     db = client['wish_bot_db']
+#     collection = db['agents']
+
+#     existing_indexes = collection.index_information()
+#     if 'agent_id_1' not in existing_indexes:
+#         collection.create_index([('agent_id', 1)], unique=True, name='agent_id_1')
+#     if 'email_1' not in existing_indexes:
+#         collection.create_index([('email', 1)], unique=True, name='email_1')
+
+#     return collection
+
+
+def get_contact_collection():
+    client = get_mongo_client()
+    db = client['wish_bot_db']
+    collection = db['contacts']
+
+    existing_indexes = collection.index_information()
+
+    # Ensure unique index on contact_id
+    if 'contact_id_1' in existing_indexes:
+        if not existing_indexes['contact_id_1'].get('unique', False):
+            print("Dropping non-unique contact_id_1 index...")
+            collection.drop_index('contact_id_1')
+            remove_duplicates(collection, 'contact_id')
+            collection.create_index([('contact_id', 1)], unique=True, name='contact_id_1')
+    else:
+        remove_duplicates(collection, 'contact_id')
+        collection.create_index([('contact_id', 1)], unique=True, name='contact_id_1')
+
+    # ✅ Unique index on email only
+    if 'email_1' in existing_indexes:
+        if not existing_indexes['email_1'].get('unique', False):
+            collection.drop_index('email_1')
+            remove_duplicates(collection, 'email')
+            collection.create_index([('email', 1)], unique=True, name='email_1')
+    else:
+        remove_duplicates(collection, 'email')
+        collection.create_index([('email', 1)], unique=True, name='email_1')
+
+    # Optional index on name (non-unique, searchable)
+    if 'name_1' not in existing_indexes:
+        collection.create_index([('name', 1)], unique=False, name='name_1')
+
+    # Timestamps
+    if 'created_at_-1' not in existing_indexes:
+        collection.create_index([('created_at', -1)], name='created_at_-1')
+    if 'updated_at_-1' not in existing_indexes:
+        collection.create_index([('updated_at', -1)], name='updated_at_-1')
+
+    return collection
+
+
+def get_agent_collection():
+    client = get_mongo_client()
+    db = client['wish_bot_db']
+    collection = db['agents']  # Change this name if your agents collection is different
+
+    existing_indexes = collection.index_information()
+
+    # Ensure unique index on agent_id (assuming this is your unique field)
+    if 'agent_id_1' in existing_indexes:
+        if not existing_indexes['agent_id_1'].get('unique', False):
+            print("Dropping non-unique agent_id_1 index...")
+            collection.drop_index('agent_id_1')
+            remove_duplicates(collection, 'agent_id')
+            collection.create_index([('agent_id', 1)], unique=True, name='agent_id_1')
+    else:
+        remove_duplicates(collection, 'agent_id')
+        collection.create_index([('agent_id', 1)], unique=True, name='agent_id_1')
+
+    # Optional index on name or email
+    if 'name_1' not in existing_indexes:
+        collection.create_index([('name', 1)], name='name_1')
+
+    if 'email_1' not in existing_indexes:
+        collection.create_index([('email', 1)], name='email_1')
+
+    # Timestamps (optional)
+    if 'created_at_-1' not in existing_indexes:
+        collection.create_index([('created_at', -1)], name='created_at_-1')
+    if 'updated_at_-1' not in existing_indexes:
+        collection.create_index([('updated_at', -1)], name='updated_at_-1')
+
+    return collection
+
+
+
+def get_trigger_collection():
+    client = get_mongo_client()
+    db = client['wish_bot_db']
+    collection = db['triggers']
+
+    # Create indexes for commonly used fields
+    indexes = collection.index_information()
+
+    if 'trigger_id_1' not in indexes:
+        collection.create_index('trigger_id', unique=True)
+
+    if 'name_1' not in indexes:
+        collection.create_index('name')
+
+    if 'is_active_1' not in indexes:
+        collection.create_index('is_active')
+
+    if 'tags_1' not in indexes:
+        collection.create_index('tags')
+
+    return collection
+
+    
