@@ -2,10 +2,11 @@ from django.urls import path
 from chat import views
 from django.conf import settings
 from django.conf.urls.static import static
-from chat.views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView,UserChatAPIView,RoomListAPIView
+from chat.views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView,UserChatAPIView,RoomListAPIView,RoomDetailAPIView
 
 urlpatterns = [
     path('rooms/', RoomListAPIView.as_view(), name='room-list'),
+    path('rooms/<str:room_id>/', RoomDetailAPIView.as_view(), name='room-detail'),
     path('active-rooms/', ActiveRoomsAPIView.as_view(), name='active-rooms'),
     path('chatroom/', views.chat_view, name='chat_view'),
     path('test-widget/', views.test_widget_view, name='test_widget'),

@@ -638,6 +638,41 @@ class RoomListAPIView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class RoomDetailAPIView(APIView):
+    def get(self, request, room_id):
+        try:
+            room_collection = get_room_collection()
+            widget_collection = get_widget_collection()
+
+            room = room_collection.find_one({"room_id": room_id})
+
+            if not room:
+                return Response({"error": "Room not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            widget_id = room.get("widget_id")
+            widget_data = {}
+
+            if widget_id:
+                widget = widget_collection.find_one(
+                    {"widget_id": widget_id},
+                    {"_id": 0, "widget_id": 1, "name": 1}
+                )
+                if widget:
+                    widget_data = {
+                        "widget_id": widget.get("widget_id"),
+                        "name": widget.get("name")
+                    }
+
+            # Format response
+            room.pop("_id", None)
+            room.pop("widget_id", None)
+            room["widget"] = widget_data
+
+            return Response(room, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class ChatMessagesByDateAPIView(APIView):
     @swagger_auto_schema(
