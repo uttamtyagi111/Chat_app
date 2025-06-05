@@ -53,6 +53,7 @@ def get_widget(request, widget_id=None):
                 "name": widget["name"],
                 "color": widget["color"],
                 "language": widget["language"],
+                "is_active": widget["is_active"],
                 "created_at": str(widget.get("created_at", "")),
                 "updated_at": str(widget.get("updated_at", "")),
             }
@@ -73,6 +74,7 @@ def get_widget(request, widget_id=None):
                 "name": widget["name"],
                 "color": widget["color"],
                 "language": widget["language"],
+                "is_active": widget["is_active"],
                 "created_at": str(widget.get("created_at", "")),
                 "updated_at": str(widget.get("updated_at", "")),
             }
@@ -101,6 +103,7 @@ def update_widget(request, widget_id):
         name = data.get("name", widget["name"])
         color = data.get("color", widget["color"])
         language = data.get("language", widget["language"])
+        is_active = data.get("is_active", widget.get("is_active", False))
         
         # Validate required fields
         if not all([widget_type, name, color]):
@@ -113,6 +116,7 @@ def update_widget(request, widget_id):
             "name": name,
             "color": color,
             "language": language,
+            "is_active": is_active,
             "created_at": widget["created_at"],  # Preserve the original created_at
             "updated_at": datetime.utcnow()  # Update the timestamp
         }
@@ -132,6 +136,8 @@ def update_widget(request, widget_id):
             "name": name,
             "color": color,
             "language": language,
+            "is_active": is_active,
+            "updated_at": updated_widget["updated_at"].isoformat(), 
             "direct_chat_link": direct_chat_link,
             "widget_code": generate_widget_code(widget_id, request),
         }, status=200)
@@ -166,6 +172,7 @@ def create_widget(request):
         name = data.get("name")
         color = data.get("color")
         language = data.get("language", "en")
+        is_active = data.get("is_active", False)
 
         if not all([widget_type, name, color]):
             return JsonResponse({"error": "Missing required fields"}, status=400)
@@ -182,6 +189,7 @@ def create_widget(request):
             "name": name,
             "color": color,
             "language": language,
+            "is_active": is_active,
         }
         insert_with_timestamps(widget_collection, widget)
 
@@ -195,6 +203,7 @@ def create_widget(request):
             "name": widget["name"],
             "color": widget["color"],
             "language": widget["language"],
+            "is_active": widget["is_active"],
             "direct_chat_link": direct_chat_link,
             "widget_code": generate_widget_code(widget["widget_id"],request),
         }, status=201)

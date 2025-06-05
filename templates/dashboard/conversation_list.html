@@ -1,22 +1,66 @@
 <h2>All Chat Conversations</h2>
-<table border="1">
-  <thead>
+<table border="1" style="width: 100%; border-collapse: collapse;">
+  <thead style="background-color: #f8f9fa;">
     <tr>
-      <th>Room ID</th>
-      <th>Last Message</th>
-      <th>Last Timestamp</th>
-      <th>Total Messages</th>
-      <th>View Chat</th>
+      <th style="padding: 10px; text-align: left;">Room ID</th>
+      <th style="padding: 10px; text-align: left;">Widget Info</th>
+      <th style="padding: 10px; text-align: left;">Status</th>
+      <th style="padding: 10px; text-align: left;">Last Message</th>
+      <th style="padding: 10px; text-align: left;">Last Activity</th>
+      <th style="padding: 10px; text-align: center;">Messages</th>
+      <th style="padding: 10px; text-align: center;">Actions</th>
     </tr>
   </thead>
   <tbody>
     {% for convo in conversations %}
+    <tr style="{% cycle 'background-color: #f8f9fa;' '' %}">
+      <td style="padding: 8px;">
+        <strong>{{ convo.room_id|truncatechars:15 }}</strong>
+      </td>
+      <td style="padding: 8px;">
+        <div>
+          <strong>{{ convo.widget.name|default:"No Widget" }}</strong>
+          {% if convo.widget.domain %}
+          <br><small style="color: #6c757d;">{{ convo.widget.domain }}</small>
+          {% endif %}
+        </div>
+      </td>
+      <td style="padding: 8px; text-align: center;">
+        {% if convo.widget.is_active %}
+          <span style="background-color: #28a745; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">
+            Active
+          </span>
+        {% else %}
+          <span style="background-color: #dc3545; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">
+            Inactive
+          </span>
+        {% endif %}
+      </td>
+      <td style="padding: 8px; max-width: 200px;">
+        <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+          {{ convo.last_message|default:"No messages"|truncatechars:40 }}
+        </div>
+      </td>
+      <td style="padding: 8px;">
+        <small>{{ convo.last_timestamp }}</small>
+      </td>
+      <td style="padding: 8px; text-align: center;">
+        <span style="background-color: #007bff; color: white; padding: 2px 6px; border-radius: 10px; font-size: 12px;">
+          {{ convo.total_messages }}
+        </span>
+      </td>
+      <td style="padding: 8px; text-align: center;">
+        <a href="{% url 'chat_room_view' convo.room_id %}" 
+           style="background-color: #17a2b8; color: white; padding: 4px 8px; text-decoration: none; border-radius: 4px; font-size: 12px;">
+          View Chat
+        </a>
+      </td>
+    </tr>
+    {% empty %}
     <tr>
-      <td>{{ convo.room_id }}</td>
-      <td>{{ convo.last_message }}</td>
-      <td>{{ convo.last_timestamp }}</td>
-      <td>{{ convo.total_messages }}</td>
-      <td><a href="{% url 'chat_room_view' convo.room_id %}">View</a></td>
+      <td colspan="7" style="padding: 20px; text-align: center; color: #6c757d;">
+        No conversations found.
+      </td>
     </tr>
     {% endfor %}
   </tbody>

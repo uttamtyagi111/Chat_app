@@ -337,7 +337,7 @@ class AssignAgentToRoom(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+from django.http import JsonResponse
 def conversation_list(request):
     try:
         collection = get_chat_collection()
@@ -352,23 +352,78 @@ def conversation_list(request):
                     "total_messages": {"$sum": 1},
                 }
             },
+            # Join with rooms collection
+            {
+                "$lookup": {
+                    "from": "rooms",  # Replace with your actual rooms collection name
+                    "localField": "_id",
+                    "foreignField": "room_id",
+                    "as": "room"
+                }
+            },
+            {"$unwind": {"path": "$room", "preserveNullAndEmptyArrays": True}},
+            
+            # Join with widgets collection
+            {
+                "$lookup": {
+                    "from": "widgets",  # Replace with your actual widgets collection name
+                    "localField": "room.widget_id",
+                    "foreignField": "widget_id",
+                    "as": "widget"
+                }
+            },
+            {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
+            
+            # Project final shape
+            {
+                "$project": {
+                    "room_id": "$_id",
+                    "last_message": 1,
+                    "last_timestamp": 1,
+                    "total_messages": 1,
+                    "widget": {
+                        "widget_id": "$widget.widget_id",
+                        "name": "$widget.name",
+                        # "domain": "$widget.domain",
+                        "is_active": "$widget.is_active",
+                        "created_at": "$widget.created_at"
+                    }
+                }
+            },
             {"$sort": {"last_timestamp": DESCENDING}}
         ]
 
         conversations = list(collection.aggregate(pipeline))
 
-        # Rename _id to room_id to avoid template error
+        # Format timestamps
         for convo in conversations:
-            convo['room_id'] = convo.pop('_id')
             if isinstance(convo.get('last_timestamp'), datetime):
                 convo['last_timestamp'] = convo['last_timestamp'].isoformat()
+            
+            # Handle case where widget might be None
+            if not convo.get('widget'):
+                convo['widget'] = {
+                    'widget_id': '',
+                    'name': 'No Widget',
+                    # 'domain': '',
+                    'is_active': False,
+                    'created_at': ''
+                }
+            if convo.get('widget') and convo['widget'].get('created_at'):
+                            if isinstance(convo['widget']['created_at'], datetime):
+                                convo['widget']['created_at'] = convo['widget']['created_at'].isoformat()
+
+        return JsonResponse({
+            "conversations": conversations,
+            "total_count": len(conversations)
+        }, status=200)
 
     except Exception as e:
-        messages.error(request, f"Error fetching conversations: {e}")
-        conversations = []
-
-    return render(request, 'dashboard/conversation_list.html', {'conversations': conversations})
-
+        return JsonResponse({
+            "error": f"Error fetching conversations: {str(e)}",
+            "conversations": [],
+            "total_count": 0
+        }, status=500)
 
 def chat_room_view(request, room_id):
     try:
