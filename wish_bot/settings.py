@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'chat',
+    'authentication',
     'dashboard',
     'support',
     'django_redis',

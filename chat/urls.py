@@ -8,6 +8,7 @@ urlpatterns = [
     path('rooms/', RoomListAPIView.as_view(), name='room-list'),
     path('rooms/<str:room_id>/', RoomDetailAPIView.as_view(), name='room-detail'),
     path('active-rooms/', ActiveRoomsAPIView.as_view(), name='active-rooms'),
+    path('agent-dash/',views.agent_dashboard, name='agent-dash'),
     path('chatroom/', views.chat_view, name='chat_view'),
     path('test-widget/', views.test_widget_view, name='test_widget'),
     path('create-widget/', views.create_widget, name='widget_view'),
