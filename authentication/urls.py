@@ -1,13 +1,12 @@
 from django.urls import path
-from authentication import views
-from django.conf import settings
-from django.conf.urls.static import static
-from authentication.views import LoginAPIView, SignupAPIView, ResetPasswordRequestAPIView
-
+from . import views
 
 urlpatterns = [
-path('login/', LoginAPIView.as_view(), name='login'),
-path('Signup/', SignupAPIView.as_view(), name='signup'),    
-path('reset-password/', ResetPasswordRequestAPIView.as_view(), name='reset-password'),
-
+    path('register-superadmin/', views.register_superadmin, name='request_password_reset'),
+    path('login/', views.login, name='request_password_reset'),
+    path('logout/', views.logout, name='request_password_reset'),
+    path('create-agent/', views.create_agent, name='request_password_reset'),
+    path('password-reset/request/', views.request_password_reset, name='request_password_reset'),
+    path('password-reset/verify/', views.verify_reset_code, name='verify_reset_code'),
+    path('password-reset/confirm/', views.reset_password, name='reset_password'),
 ]

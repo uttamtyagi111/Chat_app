@@ -1,99 +1,353 @@
-import uuid, hashlib, random
-from datetime import datetime, timedelta
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import AllowAny
-from rest_framework_simplejwt.tokens import RefreshToken
-from wish_bot.db import get_user_collection
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework.decorators import api_view, permission_classes
+# from rest_framework.permissions import IsAuthenticated
+from wish_bot.db import get_admin_collection, get_blacklist_collection
+from .utils import (
+    hash_password, verify_password,
+    generate_access_token, generate_refresh_token, decode_token,
+    generate_reset_code, hash_token,jwt_required
+)
+import json, uuid, datetime
+
+# ✅ Register superadmin (once only)
+@csrf_exempt
+def register_superadmin(request):
+    admin_collection = get_admin_collection()
+    if admin_collection.find_one({'role': 'superadmin'}):
+        return JsonResponse({"error": "Superadmin already exists"}, status=403)
+
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        data['email'] = data.get('email', '').lower()
+        if not data.get('email') or not data.get('password'):
+            return JsonResponse({"error": "Email and password are required"}, status=400)
+        data['role'] = 'superadmin'
+        data['admin_id'] = str(uuid.uuid4())
+        data['password'] = hash_password(data['password'])
+        data['created_at'] = datetime.datetime.utcnow()
+        admin_collection.insert_one(data)
+        return JsonResponse({"message": "Superadmin created successfully"}, status=201)
+        # elif request.method == 'GET':
+        #     return JsonResponse({"message": "Please register the superadmin using POST method"}, status=200)
+    return JsonResponse({"error": "Invalid request method"}, status=405)
 
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+# ✅ Login: return manually signed access and refresh tokens
+@csrf_exempt
+def login(request):
+    data = json.loads(request.body)
+    email = data.get('email')
+    password = data.get('password')
 
-def check_password(password, hashed):
-    return hash_password(password) == hashed
+    user = get_admin_collection().find_one({'email': email})
+    if not user or not verify_password(password, user['password']):
+        return JsonResponse({"error": "Invalid credentials"}, status=401)
 
-def generate_token(user_id):
-    refresh = RefreshToken.for_user(user_id)
-    return {
-        'refresh': str(refresh),
-        'access': str(refresh.access_token),
+    payload = {
+        'admin_id': user['admin_id'],
+        'email': user['email'],
+        'role': user['role']
     }
 
-class SignupAPIView(APIView):
-    permission_classes = [AllowAny]
+    access_token = generate_access_token(payload)
+    refresh_token = generate_refresh_token(payload)
 
-    def post(self, request):
-        email = request.data.get("email")
-        password = request.data.get("password")
+    return JsonResponse({
+        'access': access_token,
+        'refresh': refresh_token,
+        'role': user['role']
+    })
 
-        if get_user_collection.find_one({"email": email}):
-            return Response({"error": "Email already exists"}, status=400)
 
-        user_id = str(uuid.uuid4())
-        user = {
-            "user_id": user_id,
-            "email": email,
-            "password": hash_password(password),
-            "created_at": datetime.utcnow()
-        }
-        get_user_collection.insert_one(user)
-        return Response({"message": "Signup successful"}, status=201)
+# ✅ Token Refresh: issue new access token only if refresh token is valid & not blacklisted
+@csrf_exempt
+def refresh_token_view(request):
+    data = json.loads(request.body)
+    token = data.get("refresh")
+    if not token:
+        return JsonResponse({"error": "Refresh token is required"}, status=400)
 
-class LoginAPIView(APIView):
-    permission_classes = [AllowAny]
+    hashed = hash_token(token)
+    if get_blacklist_collection().find_one({"token": hashed}):
+        return JsonResponse({"error": "Token has been blacklisted"}, status=401)
 
-    def post(self, request):
-        email = request.data.get("email")
-        password = request.data.get("password")
+    payload = decode_token(token)
+    if not payload or payload.get('type') != 'refresh':
+        return JsonResponse({"error": "Invalid or expired refresh token"}, status=401)
 
-        user = get_user_collection.find_one({"email": email})
-        if not user or not check_password(password, user["password"]):
-            return Response({"error": "Invalid credentials"}, status=400)
+    new_access = generate_access_token({
+        'admin_id': payload['admin_id'],
+        'email': payload['email'],
+        'role': payload['role']
+    })
 
-        token = generate_token(user["user_id"])
-        return Response({"token": token}, status=200)
+    return JsonResponse({'access': new_access})
 
-class ResetPasswordRequestAPIView(APIView):
-    permission_classes = [AllowAny]
 
-    def post(self, request):
-        email = request.data.get("email")
-        user = get_user_collection.find_one({"email": email})
+# ✅ Logout: hash & store refresh token in blacklist with TTL
+@api_view(['POST'])
+@jwt_required
+# @permission_classes([IsAuthenticated])
+def logout(request):
+    try:
+        refresh_token = request.data.get("refresh")
+        if not refresh_token:
+            return JsonResponse({"error": "Refresh token required"}, status=400)
+
+        hashed = hash_token(refresh_token)
+        expiry = datetime.datetime.utcnow() + datetime.timedelta(days=7)
+
+        get_blacklist_collection().insert_one({
+            "token": hashed,
+            "expiresAt": expiry
+        })
+
+        return JsonResponse({"message": "Logged out successfully"})
+    except Exception:
+        return JsonResponse({"error": "Invalid refresh token"}, status=400)
+
+
+# ✅ Create Agent: Only for superadmin (manual role check)
+@csrf_exempt
+@jwt_required
+def create_agent(request):
+    user = request.user
+    if user.get('role') != 'superadmin':
+        return JsonResponse({"error": "Unauthorized"}, status=403)
+
+    data = json.loads(request.body)
+    data['email'] = data.get('email', '').lower()
+    data['role'] = 'agent'
+    data['admin_id'] = str(uuid.uuid4())
+    data['password'] = hash_password(data['password'])
+    data['created_at'] = datetime.now()
+    if not data.get('email') or not data.get('password'):
+        return JsonResponse({"error": "Email and password are required"}, status=400)
+    get_admin_collection().insert_one(data)
+
+    return JsonResponse({"message": "Agent created successfully"})
+
+
+import json
+import logging
+from datetime import datetime, timedelta
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
+import secrets
+import string
+
+logger = logging.getLogger(__name__)
+
+def generate_reset_code():
+    """Generate a secure 6-digit reset code"""
+    return ''.join(secrets.choice(string.digits) for _ in range(6))
+
+def validate_email_format(email):
+    """Validate email format"""
+    try:
+        validate_email(email)
+        return True
+    except ValidationError:
+        return False
+
+# ✅ Request password reset via code
+@csrf_exempt
+@require_http_methods(["POST"])
+def request_password_reset(request):
+    try:
+        # Parse request data
+        data = json.loads(request.body)
+        email = data.get('email', '').strip().lower()
+        
+        # Validate email format
+        if not email:
+            return JsonResponse({"error": "Email is required"}, status=400)
+        
+        if not validate_email_format(email):
+            return JsonResponse({"error": "Invalid email format"}, status=400)
+        
+        # Check if user exists
+        user = get_admin_collection().find_one({"email": email})
         if not user:
-            return Response({"error": "Email not found"}, status=404)
-
-        otp = str(random.randint(100000, 999999))
-        get_user_collection.update_one(
-            {"email": email},
-            {"$set": {
-                "reset_otp": otp,
-                "otp_expiry": datetime.utcnow() + timedelta(minutes=10)
-            }}
+            # For security, don't reveal whether email exists or not
+            return JsonResponse({
+                "message": "If this email is registered, you will receive a reset code shortly."
+            })
+        
+        # Check for recent reset requests (rate limiting)
+        recent_reset = get_admin_collection().find_one({
+            "email": email,
+            "reset_code_created": {"$gte": datetime.utcnow() - timedelta(minutes=1)}
+        })
+        
+        if recent_reset:
+            return JsonResponse({
+                "error": "Please wait at least 1 minute before requesting another reset code"
+            }, status=429)
+        
+        # Generate reset code with expiration
+        reset_code = generate_reset_code()
+        reset_code_expires = datetime.utcnow() + timedelta(minutes=15)  # 15 minutes expiry
+        
+        # Update user with reset code and timestamp
+        get_admin_collection().update_one(
+            {'_id': user['_id']}, 
+            {
+                '$set': {
+                    'reset_code': reset_code,
+                    'reset_code_created': datetime.utcnow(),
+                    'reset_code_expires': reset_code_expires
+                }
+            }
         )
-        # Replace with your email function
-        print(f"OTP for {email} is {otp}")  # or send_mail(...)
-        return Response({"message": "OTP sent to your email"}, status=200)
+        
+        # Send OTP email
+        from utils.email_sender import send_otp_email
+        result = send_otp_email(email, reset_code, purpose="password_reset")
+       
+        if result['success']:
+            logger.info(f"Password reset code sent successfully to {email}")
+            return JsonResponse({
+                "message": "Password reset code sent to your email",
+                "expires_in_minutes": 15
+            })
+        else:
+            # Log the error for debugging but don't expose internal details
+            logger.error(f"Email sending failed for {email}: {result['error']}")
+            
+            # Remove reset code if email failed
+            get_admin_collection().update_one(
+                {'_id': user['_id']},
+                {'$unset': {'reset_code': "", 'reset_code_created': "", 'reset_code_expires': ""}}
+            )
+            
+            return JsonResponse({
+                "error": "Failed to send reset code. Please try again later."
+            }, status=500)
+            
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+    except Exception as e:
+        logger.error(f"Unexpected error in password reset request: {str(e)}")
+        return JsonResponse({
+            "error": "An unexpected error occurred. Please try again later."
+        }, status=500)
 
-class ResetPasswordConfirmAPIView(APIView):
-    permission_classes = [AllowAny]
 
-    def post(self, request):
-        email = request.data.get("email")
-        otp = request.data.get("otp")
-        new_password = request.data.get("new_password")
-
-        user = get_user_collection.find_one({"email": email})
-        if not user or user.get("reset_otp") != otp:
-            return Response({"error": "Invalid OTP"}, status=400)
-
-        if datetime.utcnow() > user.get("otp_expiry", datetime.utcnow()):
-            return Response({"error": "OTP expired"}, status=400)
-
-        get_user_collection.update_one(
-            {"email": email},
-            {"$set": {"password": hash_password(new_password)},
-             "$unset": {"reset_otp": "", "otp_expiry": ""}}
+# ✅ Reset password with code
+@csrf_exempt
+@require_http_methods(["POST"])
+def reset_password(request):
+    try:
+        # Parse request data
+        data = json.loads(request.body)
+        email = data.get('email', '').strip().lower()
+        code = data.get('code', '').strip()
+        new_password = data.get('new_password', '')
+        
+        # Validate inputs
+        if not all([email, code, new_password]):
+            return JsonResponse({
+                "error": "Email, code, and new password are required"
+            }, status=400)
+        
+        if not validate_email_format(email):
+            return JsonResponse({"error": "Invalid email format"}, status=400)
+        
+        # Validate password strength
+        if len(new_password) < 8:
+            return JsonResponse({
+                "error": "Password must be at least 8 characters long"
+            }, status=400)
+        
+        # Find user with valid reset code
+        user = get_admin_collection().find_one({
+            'email': email, 
+            'reset_code': code,
+            'reset_code_expires': {'$gte': datetime.utcnow()}
+        })
+        
+        if not user:
+            # Check if code exists but expired
+            expired_user = get_admin_collection().find_one({
+                'email': email,
+                'reset_code': code
+            })
+            
+            if expired_user:
+                return JsonResponse({
+                    "error": "Reset code has expired. Please request a new one."
+                }, status=400)
+            else:
+                return JsonResponse({
+                    "error": "Invalid reset code or email"
+                }, status=400)
+        
+        # Hash new password
+        hashed_password = hash_password(new_password)
+        
+        # Update password and remove reset code
+        get_admin_collection().update_one(
+            {'_id': user['_id']},
+            {
+                '$set': {'password': hashed_password, 'password_updated_at': datetime.utcnow()},
+                '$unset': {
+                    'reset_code': "", 
+                    'reset_code_created': "", 
+                    'reset_code_expires': ""
+                }
+            }
         )
-        return Response({"message": "Password reset successful"}, status=200)
+        
+        # Send confirmation email (optional)
+        from utils.email_sender import send_password_reset_confirmation
+        username = user.get('username') or user.get('name')
+        send_password_reset_confirmation(email, username)
+        
+        logger.info(f"Password reset successful for {email}")
+        return JsonResponse({"message": "Password updated successfully"})
+        
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+    except Exception as e:
+        logger.error(f"Unexpected error in password reset: {str(e)}")
+        return JsonResponse({
+            "error": "An unexpected error occurred. Please try again later."
+        }, status=500)
+
+
+# ✅ Verify reset code (optional - for frontend validation)
+@csrf_exempt
+@require_http_methods(["POST"])
+def verify_reset_code(request):
+    try:
+        data = json.loads(request.body)
+        email = data.get('email', '').strip().lower()
+        code = data.get('code', '').strip()
+        
+        if not email or not code:
+            return JsonResponse({"error": "Email and code are required"}, status=400)
+        
+        # Check if code is valid and not expired
+        user = get_admin_collection().find_one({
+            'email': email,
+            'reset_code': code,
+            'reset_code_expires': {'$gte': datetime.utcnow()}
+        })
+        
+        if user:
+            time_left = user['reset_code_expires'] - datetime.utcnow()
+            return JsonResponse({
+                "valid": True,
+                "minutes_left": int(time_left.total_seconds() / 60)
+            })
+        else:
+            return JsonResponse({"valid": False}, status=400)
+            
+    except Exception as e:
+        logger.error(f"Error verifying reset code: {str(e)}")
+        return JsonResponse({"error": "Verification failed"}, status=500)

@@ -5,9 +5,11 @@ from datetime import datetime, timedelta
 from utils.redis_client import redis_client
 from django.shortcuts import render
 from django.http import JsonResponse
+from rest_framework.permissions import IsAuthenticated
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from utils.random_id import generate_room_id,generate_widget_id 
+# from authentication.permissions import IsSuperAdmin,IsAgent
 import logging
 import uuid
 import json
@@ -26,8 +28,6 @@ from drf_yasg import openapi
 
 logger = logging.getLogger(__name__)
 
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 import json
 from bson import ObjectId  # If using MongoDB ObjectId (optional, depending on your setup)
@@ -551,50 +551,50 @@ class ActiveRoomsAPIView(APIView):
 agent_view for testing with frontend template
 """
 
-# def agent_chat(request, room_id):
-#     room_collection = get_room_collection()
-#     room = room_collection.find_one({'room_id': room_id})
-#     if room:
-#         room_collection.update_one(
-#             {'room_id': room_id},
-#             {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with actual agent logic
-#         )
-#     return render(request, 'chat/agent_chat.html', {'room_id': room_id})
+def agent_chat(request, room_id):
+    room_collection = get_room_collection()
+    room = room_collection.find_one({'room_id': room_id})
+    if room:
+        room_collection.update_one(
+            {'room_id': room_id},
+            {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with actual agent logic
+        )
+    return render(request, 'chat/agent_chat.html', {'room_id': room_id})
 
-class AgentChatAPIView(APIView):
-    @swagger_auto_schema(
-        operation_description="Assign an agent to an existing chat room based on room_id",
-        manual_parameters=[
-            openapi.Parameter('room_id', openapi.IN_PATH, description="Room ID so that agent can connect to", type=openapi.TYPE_STRING),
-        ],
-        responses={
-            200: openapi.Response('Agent assigned successfully', schema=openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'message': openapi.Schema(type=openapi.TYPE_STRING),
-                    'room_id': openapi.Schema(type=openapi.TYPE_STRING),
-                    'assigned_agent': openapi.Schema(type=openapi.TYPE_STRING),
-                }
-            )),
-            404: "Room not found"
-        }
-    )
-    def post(self, request, room_id):
-        room_collection = get_room_collection()
-        room = room_collection.find_one({'room_id': room_id})
+# class AgentChatAPIView(APIView):
+#     @swagger_auto_schema(
+#         operation_description="Assign an agent to an existing chat room based on room_id",
+#         manual_parameters=[
+#             openapi.Parameter('room_id', openapi.IN_PATH, description="Room ID so that agent can connect to", type=openapi.TYPE_STRING),
+#         ],
+#         responses={
+#             200: openapi.Response('Agent assigned successfully', schema=openapi.Schema(
+#                 type=openapi.TYPE_OBJECT,
+#                 properties={
+#                     'message': openapi.Schema(type=openapi.TYPE_STRING),
+#                     'room_id': openapi.Schema(type=openapi.TYPE_STRING),
+#                     'assigned_agent': openapi.Schema(type=openapi.TYPE_STRING),
+#                 }
+#             )),
+#             404: "Room not found"
+#         }
+#     )
+#     def post(self, request, room_id):
+#         room_collection = get_room_collection()
+#         room = room_collection.find_one({'room_id': room_id})
 
-        if room:
-            room_collection.update_one(
-                {'room_id': room_id},
-                {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with dynamic agent assignment if needed
-            )
-            return Response({
-                'message': 'Agent assigned successfully.',
-                'room_id': room_id,
-                'assigned_agent': 'Agent 007',
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({'message': 'Room not found.'}, status=status.HTTP_404_NOT_FOUND)
+#         if room:
+#             room_collection.update_one(
+#                 {'room_id': room_id},
+#                 {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with dynamic agent assignment if needed
+#             )
+#             return Response({
+#                 'message': 'Agent assigned successfully.',
+#                 'room_id': room_id,
+#                 'assigned_agent': 'Agent 007',
+#             }, status=status.HTTP_200_OK)
+#         else:
+#             return Response({'message': 'Room not found.'}, status=status.HTTP_404_NOT_FOUND)
         
         
 def agent_dashboard(request):
@@ -1120,3 +1120,27 @@ def delete_agent_note(request, room_id, note_id):
         return Response({"message": "Note deleted successfully"})
     else:
         return Response({"error": "Note not found"}, status=status.HTTP_404_NOT_FOUND)
+    
+    
+import logging
+
+logger = logging.getLogger(__name__)
+
+# class AgentListAPIView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request):
+#         try:
+#             logger.info("Fetching agent list for superadmin")
+            
+#             agents = list(get_admin_collection().find(
+#                 {"role": "agent"},
+#                 {"_id": 0, "admin_id": 1, "email": 1, "created_at": 1}
+#             ))
+
+#             logger.debug(f"Found {len(agents)} agents")
+#             return Response({"agents": agents}, status=200)
+
+#         except Exception as e:
+#             logger.error(f"Error fetching agent list: {str(e)}")
+#             return Response({"error": "Internal server error"}, status=500)

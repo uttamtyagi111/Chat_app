@@ -377,23 +377,37 @@ def get_trigger_collection():
 
     return collection
 
-def get_user_collection():
+def get_knowledge_base_collection():
     client = get_mongo_client()
     db = client['wish_bot_db']
-    collection = db['users']
-    
+    collection = db['knowledge_base']
+
+    # Create indexes for commonly used fields
+    indexes = collection.index_information()
+
+    if 'kb_id_1' not in indexes:
+        collection.create_index('kb_id', unique=True)
+
+    if 'title_1' not in indexes:
+        collection.create_index('title')
+
+    if 'tags_1' not in indexes:
+        collection.create_index('tags')
+
+    return collection
+
+
+
+def get_admin_collection():
+    """
+    Get MongoDB collection for admin users.
+    """
+    client = get_mongo_client()
+    db = client['wish_bot_db']
+    collection = db['admins']
+
     existing_indexes = collection.index_information()
-    # Ensure unique index on user_id
-    if 'user_id_1' in existing_indexes:
-        if not existing_indexes['user_id_1'].get('unique', False):
-            print("Dropping non-unique user_id_1 index...")
-            collection.drop_index('user_id_1')
-            remove_duplicates(collection, 'user_id')
-            collection.create_index([('user_id', 1)], unique=True, name='user_id_1')
-    else:
-        remove_duplicates(collection, 'user_id')
-        collection.create_index([('user_id', 1)], unique=True, name='user_id_1')
-        
+
     # Ensure unique index on email
     if 'email_1' in existing_indexes:
         if not existing_indexes['email_1'].get('unique', False):
@@ -404,15 +418,29 @@ def get_user_collection():
     else:
         remove_duplicates(collection, 'email')
         collection.create_index([('email', 1)], unique=True, name='email_1')
-        
-    # Optional index on username
-    if 'username_1' not in existing_indexes:
-        collection.create_index([('username', 1)], name='username_1')
-    # Optional index on created_at
-    if 'created_at_-1' not in existing_indexes:
-        collection.create_index([('created_at', -1)], name='created_at_-1') 
-    # Optional index on updated_at
-    if 'updated_at_-1' not in existing_indexes:
-        collection.create_index([('updated_at', -1)], name='updated_at_-1')
+
+    return collection
+
+
+def get_blacklist_collection():
+    """
+    Get MongoDB collection for blacklisted tokens.
+    """
+    client = get_mongo_client()
+    db = client['wish_bot_db']
+    collection = db['blacklisted_tokens']
+
+    existing_indexes = collection.index_information()
+
+    # Ensure unique index on token
+    if 'token_1' in existing_indexes:
+        if not existing_indexes['token_1'].get('unique', False):
+            print("Dropping non-unique token_1 index...")
+            collection.drop_index('token_1')
+            remove_duplicates(collection, 'token')
+            collection.create_index([('token', 1)], unique=True, name='token_1')
+    else:
+        remove_duplicates(collection, 'token')
+        collection.create_index([('token', 1)], unique=True, name='token_1')
 
     return collection
