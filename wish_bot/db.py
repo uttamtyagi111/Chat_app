@@ -27,6 +27,7 @@ def get_mongo_client():
             raise
     return _mongo_client
 
+
 def get_redis_client():
     global _redis_client
     if _redis_client is None:

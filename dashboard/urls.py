@@ -24,6 +24,9 @@ urlpatterns = [
     # # Global Conversation URLs
     path('conversations/', views.conversation_list, name='conversation-list'),
     path('conversations/<str:room_id>/', views.chat_room_view, name='chat_room_view'),
+    
+    ## Widget Conversation URLs
+    path('conversations/widget/<str:widget_id>/', views.widget_conversations, name='widget_conversations'),
 
     # Contact URLs
     path('contacts/', ContactListCreateView.as_view(), name='contact-list-create'),

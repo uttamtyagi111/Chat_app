@@ -8,7 +8,7 @@ from django.http import JsonResponse
 from rest_framework.permissions import IsAuthenticated
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from utils.random_id import generate_room_id,generate_widget_id 
+from utils.random_id import generate_room_id,generate_widget_id,generate_unique_username
 # from authentication.permissions import IsSuperAdmin,IsAgent
 import logging
 import uuid
@@ -481,10 +481,13 @@ class UserChatAPIView(APIView):
         while existing_room:
             room_id = generate_room_id()
             existing_room = room_collection.find_one({'room_id': room_id})
+            
+        user_name = generate_unique_username()
 
         # Create a new room associated with the widget_id
         room_document=({
             'room_id': room_id,
+            'user_name' : user_name,  # Assign a unique username to the user
             'widget_id': widget_id,  # Associate the room with the widget
             'is_active': True,
             'created_at': datetime.now(),
@@ -503,6 +506,7 @@ class UserChatAPIView(APIView):
 
         return Response({
             "room_id": room_id,
+            "user_name": user_name,  # Include the generated username in the response
             "widget": widget_details
         }, status=status.HTTP_201_CREATED)
 

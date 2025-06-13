@@ -81,7 +81,6 @@ class AddAgentView(APIView):
             return Response(f"Error inserting agent: {str(e)}", status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
 class EditAgentAPIView(APIView):
     @extend_schema(
         request={
@@ -170,8 +169,6 @@ class DeleteAgentAPIView(APIView):
             return Response({'detail': f"Database error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as e:
             return Response({'detail': f"Unexpected error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
 
 
 
@@ -442,6 +439,102 @@ def chat_room_view(request, room_id):
 
 
 
+def widget_conversations(request, widget_id):
+    """Get all conversations for a specific widget"""
+    try:
+        collection = get_chat_collection()
+        
+        pipeline = [
+            {"$sort": {"timestamp": DESCENDING}},
+            {
+                "$group": {
+                    "_id": "$room_id",
+                    "last_message": {"$first": "$message"},
+                    "last_timestamp": {"$first": "$timestamp"},
+                    "total_messages": {"$sum": 1},
+                }
+            },
+            # Join with rooms collection
+            {
+                "$lookup": {
+                    "from": "rooms",
+                    "localField": "_id",
+                    "foreignField": "room_id",
+                    "as": "room"
+                }
+            },
+            {"$unwind": {"path": "$room", "preserveNullAndEmptyArrays": True}},
+            
+            # Filter by widget_id at room level
+            {
+                "$match": {
+                    "room.widget_id": widget_id
+                }
+            },
+            
+            # Join with widgets collection
+            {
+                "$lookup": {
+                    "from": "widgets",
+                    "localField": "room.widget_id",
+                    "foreignField": "widget_id",
+                    "as": "widget"
+                }
+            },
+            {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
+            
+            # Project final shape
+            {
+                "$project": {
+                    "room_id": "$_id",
+                    "last_message": 1,
+                    "last_timestamp": 1,
+                    "total_messages": 1,
+                    "widget": {
+                        "widget_id": "$widget.widget_id",
+                        "name": "$widget.name",
+                        "is_active": "$widget.is_active",
+                        "created_at": "$widget.created_at"
+                    }
+                }
+            },
+            {"$sort": {"last_timestamp": DESCENDING}}
+        ]
+
+        conversations = list(collection.aggregate(pipeline))
+
+        # Format timestamps
+        for convo in conversations:
+            if isinstance(convo.get('last_timestamp'), datetime):
+                convo['last_timestamp'] = convo['last_timestamp'].isoformat()
+            
+            if not convo.get('widget'):
+                convo['widget'] = {
+                    'widget_id': '',
+                    'name': 'No Widget',
+                    'is_active': False,
+                    'created_at': ''
+                }
+            if convo.get('widget') and convo['widget'].get('created_at'):
+                if isinstance(convo['widget']['created_at'], datetime):
+                    convo['widget']['created_at'] = convo['widget']['created_at'].isoformat()
+
+        return JsonResponse({
+            "conversations": conversations,
+            "total_count": len(conversations),
+            "widget_id": widget_id
+        }, status=200)
+
+    except Exception as e:
+        return JsonResponse({
+            "error": f"Error fetching conversations for widget {widget_id}: {str(e)}",
+            "conversations": [],
+            "total_count": 0
+        }, status=500)
+
+
+# URL pattern would be something like:
+# path('conversations/widget/<str:widget_id>/', widget_conversations, name='widget_conversations')
 class ContactListCreateView(APIView):
     def get(self, request):
         agent_id = request.query_params.get('agent_id')

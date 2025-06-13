@@ -1,4 +1,9 @@
-import uuid
+from functools import wraps
+from django.http import JsonResponse
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
+import secrets
+import string
 import hashlib, jwt, datetime
 from django.conf import settings
 
@@ -10,7 +15,16 @@ def verify_password(raw, hashed):
     return hash_password(raw) == hashed
 
 def generate_reset_code():
-    return str(uuid.uuid4())[:6]
+    """Generate a secure 6-digit reset code"""
+    return ''.join(secrets.choice(string.digits) for _ in range(6))
+
+def validate_email_format(email):
+    """Validate email format"""
+    try:
+        validate_email(email)
+        return True
+    except ValidationError:
+        return False
 
 def hash_token(token):
     return hashlib.sha256(token.encode()).hexdigest()
@@ -38,9 +52,6 @@ def decode_token(token):
         return None 
     
     
-from functools import wraps
-from django.http import JsonResponse
-from .utils import decode_token
 
 def jwt_required(view_func):
     @wraps(view_func)

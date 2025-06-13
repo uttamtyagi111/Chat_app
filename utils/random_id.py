@@ -32,3 +32,9 @@ def generate_contact_id():
     date_str = datetime.utcnow().strftime('%Y%m%d')
     rand_str = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
     return f"CONT-{date_str}-{rand_str}"
+
+
+import uuid
+
+def generate_unique_username():
+    return f"W{uuid.uuid4().hex[:16]}" 

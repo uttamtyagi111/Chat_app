@@ -1,14 +1,20 @@
+from utils.email_sender import send_otp_email
+import logging
+from datetime import datetime, timedelta
 from django.http import JsonResponse
+from django.views.decorators.http import require_http_methods
+from pymongo.errors import DuplicateKeyError
+from datetime import datetime, timedelta
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework.decorators import api_view, permission_classes
-# from rest_framework.permissions import IsAuthenticated
+import json, uuid, datetime
 from wish_bot.db import get_admin_collection, get_blacklist_collection
 from .utils import (
     hash_password, verify_password,
     generate_access_token, generate_refresh_token, decode_token,
-    generate_reset_code, hash_token,jwt_required
+    generate_reset_code, hash_token,jwt_required, validate_email_format
 )
-import json, uuid, datetime
+from .utils import decode_token
+logger = logging.getLogger(__name__)
 
 # ✅ Register superadmin (once only)
 @csrf_exempt
@@ -22,14 +28,14 @@ def register_superadmin(request):
         data['email'] = data.get('email', '').lower()
         if not data.get('email') or not data.get('password'):
             return JsonResponse({"error": "Email and password are required"}, status=400)
+        if not validate_email_format(data["email"]):
+            return JsonResponse({"error": "Invalid email format"}, status=400)
         data['role'] = 'superadmin'
         data['admin_id'] = str(uuid.uuid4())
         data['password'] = hash_password(data['password'])
         data['created_at'] = datetime.datetime.utcnow()
         admin_collection.insert_one(data)
         return JsonResponse({"message": "Superadmin created successfully"}, status=201)
-        # elif request.method == 'GET':
-        #     return JsonResponse({"message": "Please register the superadmin using POST method"}, status=200)
     return JsonResponse({"error": "Invalid request method"}, status=405)
 
 
@@ -41,6 +47,8 @@ def login(request):
     password = data.get('password')
 
     user = get_admin_collection().find_one({'email': email})
+    if not validate_email_format(email):
+            return JsonResponse({"error": "Invalid email format"}, status=400)
     if not user or not verify_password(password, user['password']):
         return JsonResponse({"error": "Invalid credentials"}, status=401)
 
@@ -85,28 +93,53 @@ def refresh_token_view(request):
     return JsonResponse({'access': new_access})
 
 
+
 # ✅ Logout: hash & store refresh token in blacklist with TTL
-@api_view(['POST'])
+@require_http_methods(["POST"])
 @jwt_required
-# @permission_classes([IsAuthenticated])
 def logout(request):
+    logger.info("Logout attempt initiated")
+    
     try:
-        refresh_token = request.data.get("refresh")
+        # Parse JSON body from Django request
+        try:
+            body = json.loads(request.body.decode('utf-8'))
+            refresh_token = body.get("refresh")
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            logger.warning("Logout failed - Invalid JSON in request body")
+            return JsonResponse({"error": "Invalid JSON"}, status=400)
+        
         if not refresh_token:
+            logger.warning("Logout failed - Missing refresh token")
             return JsonResponse({"error": "Refresh token required"}, status=400)
 
+        # Log token processing (without logging the actual token for security)
+        logger.info("Processing logout - Hashing refresh token")
+        
         hashed = hash_token(refresh_token)
-        expiry = datetime.datetime.utcnow() + datetime.timedelta(days=7)
+        expiry = datetime.now() + timedelta(days=7)
 
-        get_blacklist_collection().insert_one({
-            "token": hashed,
-            "expiresAt": expiry
-        })
+        # Log blacklist operation
+        logger.info(f"Adding token to blacklist - Expiry: {expiry}")
+        
+        try:
+            get_blacklist_collection().insert_one({
+                "token": hashed,
+                "expiresAt": expiry,
+                "created_at": datetime.now()
+            })
+            logger.info(f"Logout successful - Token blacklisted until: {expiry}")
+        except DuplicateKeyError:
+            logger.info("Logout successful - Token was already blacklisted")
 
         return JsonResponse({"message": "Logged out successfully"})
-    except Exception:
+        
+    except Exception as e:
+        logger.error(
+            f"Logout failed - Error: {str(e)}", 
+            exc_info=True  # This includes the full stack trace
+        )
         return JsonResponse({"error": "Invalid refresh token"}, status=400)
-
 
 # ✅ Create Agent: Only for superadmin (manual role check)
 @csrf_exempt
@@ -124,35 +157,13 @@ def create_agent(request):
     data['created_at'] = datetime.now()
     if not data.get('email') or not data.get('password'):
         return JsonResponse({"error": "Email and password are required"}, status=400)
+    if not validate_email_format(data['email']):
+            return JsonResponse({"error": "Invalid email format"}, status=400)
     get_admin_collection().insert_one(data)
 
     return JsonResponse({"message": "Agent created successfully"})
 
 
-import json
-import logging
-from datetime import datetime, timedelta
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
-from django.core.validators import validate_email
-from django.core.exceptions import ValidationError
-import secrets
-import string
-
-logger = logging.getLogger(__name__)
-
-def generate_reset_code():
-    """Generate a secure 6-digit reset code"""
-    return ''.join(secrets.choice(string.digits) for _ in range(6))
-
-def validate_email_format(email):
-    """Validate email format"""
-    try:
-        validate_email(email)
-        return True
-    except ValidationError:
-        return False
 
 # ✅ Request password reset via code
 @csrf_exempt
@@ -205,8 +216,6 @@ def request_password_reset(request):
             }
         )
         
-        # Send OTP email
-        from utils.email_sender import send_otp_email
         result = send_otp_email(email, reset_code, purpose="password_reset")
        
         if result['success']:
