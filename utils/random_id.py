@@ -34,7 +34,7 @@ def generate_contact_id():
     return f"CONT-{date_str}-{rand_str}"
 
 
-import uuid
+# import uuid
 
-def generate_unique_username():
-    return f"W{uuid.uuid4().hex[:16]}" 
+# def generate_unique_username():
+#     return f"W{uuid.uuid4().hex[:16]}" 
