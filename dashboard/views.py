@@ -1,6 +1,6 @@
 from pymongo.errors import DuplicateKeyError
 from utils.random_id import generate_contact_id  # Import the contact ID generator
-from wish_bot.db import  get_contact_collection # Import the contacts collection
+from wish_bot.db import  get_admin_collection, get_contact_collection # Import the contacts collection
 import csv,io,json,uuid
 from datetime import datetime
 from pymongo.errors import PyMongoError  # Assuming PyMongo for MongoDB
@@ -11,14 +11,17 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from wish_bot.db import get_room_collection,get_chat_collection 
 from wish_bot.db import get_agent_collection, get_mongo_client
+from authentication.utils import (
+    hash_password,jwt_required, validate_email_format,jwt_required)
 from drf_spectacular.utils import extend_schema,OpenApiResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django.contrib import messages
 from pymongo import DESCENDING
 from collections import defaultdict
 from django.shortcuts import render
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view
 
 # Optional helper to get conversations collection
@@ -33,55 +36,88 @@ def agent_list(request):
     agents = list(agents_collection.find())
     return render(request, 'dashboard/agent_list.html', {'agents': agents})
 
+
 class AddAgentView(APIView):
+    authentication_classes = []  # We are using custom auth
+    permission_classes = []      # No DRF permission checks
+
+    @method_decorator(csrf_exempt)
+    @method_decorator(jwt_required)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
     @extend_schema(
         request={
             'application/json': {
                 'type': 'object',
                 'properties': {
                     'name': {'type': 'string', 'example': 'John Doe'},
-                    'email': {'type': 'string', 'format': 'email', 'example': 'john@example.com'}
+                    'email': {'type': 'string', 'format': 'email', 'example': 'john@example.com'},
+                    'password': {'type': 'string', 'example': 'StrongPass@123'}
                 },
-                'required': ['name', 'email']
+                'required': ['name', 'email', 'password']
             }
         },
         responses={
             201: OpenApiResponse(response={"message": "Agent created successfully."}),
             400: OpenApiResponse(response={"message": "Agent already exists or invalid input."}),
+            403: OpenApiResponse(response={"error": "Unauthorized"}),
             500: OpenApiResponse(description="Internal Server Error")
         },
-        description="Add a new agent to the system. Name and Email must be unique."
+        description="Only superadmin can add an agent. Requires name, email, password."
     )
     def post(self, request):
-        agents_collection = get_agent_collection()
-
-        name = request.data.get('name')
-        email = request.data.get('email')
-
-        if not name or not email:
-            return Response("Name and Email are required", status=status.HTTP_400_BAD_REQUEST)
-        
-         # Check for duplicates by name or email
-        if agents_collection.find_one({"$or": [{"name": name}, {"email": email}]}):
-            return Response(
-                {"message": "Agent with this name or email already exists."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        user = getattr(request, 'jwt_user', None)
+        if not user or user.get('role') != 'superadmin':
+            return Response({'error': 'Unauthorized'}, status=403)
 
         try:
-            agents_collection.insert_one({
-                'agent_id': str(uuid.uuid4()),
-                'name': name,
-                'email': email,
-                'is_online': False,
-                'last_active': None,
-            })
-            return Response({"message": f"Agent {name} created successfully"}, status=status.HTTP_201_CREATED)
+            data = request.data if hasattr(request, 'data') else json.loads(request.body)
+        except (json.JSONDecodeError, ValueError):
+            return Response({"message": "Invalid JSON format"}, status=400)
+
+        name = data.get('name', '').strip()
+        email = data.get('email', '').lower().strip()
+        password = data.get('password', '').strip()
+
+        if not name or not email or not password:
+            return Response({"message": "Name, Email and Password are required"}, status=400)
+
+        if not validate_email_format(email):
+            return Response({"message": "Invalid email format"}, status=400)
+
+        try:
+            agents_collection = get_admin_collection()
+            if agents_collection.find_one({"email": email}):
+                return Response({"message": "Agent with this email already exists."}, status=400)
         except Exception as e:
-            return Response(f"Error inserting agent: {str(e)}", status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"message": "Database error while checking existing agent"}, status=500)
+
+        agent_data = {
+            'name': name,
+            'email': email,
+            'role': 'agent',
+            'admin_id': str(uuid.uuid4()),
+            'password': hash_password(password),
+            'created_at': datetime.utcnow(),
+            'updated_at': datetime.utcnow(),
+            'is_online': False,
+            'last_active': None
+        }
+
+        try:
+            result = agents_collection.insert_one(agent_data)
+            if result.inserted_id:
+                return Response({"message": f"Agent {name} created successfully"}, status=201)
+            else:
+                return Response({"message": "Failed to create agent"}, status=500)
+        except Exception as e:
+            return Response({"message": f"Error creating agent: {str(e)}"}, status=500)
+
 
 
 class EditAgentAPIView(APIView):
+    # @jwt_required
     @extend_schema(
         request={
             'application/json': {
@@ -95,126 +131,137 @@ class EditAgentAPIView(APIView):
         },
         responses={
             200: OpenApiResponse(response={'message': 'Agent updated successfully.'}),
-            400: OpenApiResponse(description='Bad Request - Duplicate or missing fields'),
+            400: OpenApiResponse(description='Duplicate or missing fields'),
+            # 403: OpenApiResponse(description='Unauthorized access'),
             404: OpenApiResponse(description='Agent not found'),
-            500: OpenApiResponse(description='Server error')
+            500: OpenApiResponse(description='Unexpected server error')
         },
-        description="Update an existing agent by agent_id. Name and Email must be unique across other agents."
+        description="✏️ Update agent name and email. Requires superadmin role."
     )
     def put(self, request, agent_id):
-        try:
-            agents_collection = get_agent_collection()
+        # user = request.user
+        # if user.get('role') != 'superadmin':
+        #     return Response({"error": "Unauthorized"}, status=403)
 
+        agents_collection = get_agent_collection()
+        name = request.data.get('name')
+        email = request.data.get('email', '').lower()
+
+        if not name or not email:
+            return Response({'detail': 'Name and Email are required'}, status=400)
+
+        if not validate_email_format(email):
+            return Response({"message": "Invalid email format"}, status=400)
+
+        try:
             agent = agents_collection.find_one({'agent_id': agent_id})
             if not agent:
-                return Response({'detail': 'Agent not found'}, status=status.HTTP_404_NOT_FOUND)
+                return Response({'detail': 'Agent not found'}, status=404)
 
-            name = request.data.get('name')
-            email = request.data.get('email')
-
-            if not name or not email:
-                return Response({'detail': 'Name and Email are required'}, status=status.HTTP_400_BAD_REQUEST)
-
-            # Check for duplicate name/email among other agents
             duplicate_agent = agents_collection.find_one({
                 'agent_id': {'$ne': agent_id},
                 '$or': [{'name': name}, {'email': email}]
             })
             if duplicate_agent:
-                return Response(
-                    {'detail': 'Another agent with this name or email already exists.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({'detail': 'Another agent with this name or email already exists.'}, status=400)
 
             result = agents_collection.update_one(
                 {'agent_id': agent_id},
-                {'$set': {'name': name, 'email': email}}
+                {'$set': {'name': name, 'email': email , 'updated_at': datetime.now() }}
             )
 
             if result.modified_count == 0:
-                return Response({'message': 'No changes were made.'}, status=status.HTTP_200_OK)
+                return Response({'message': 'No changes were made.'}, status=200)
 
-            return Response({'message': 'Agent updated successfully.'}, status=status.HTTP_200_OK)
-
+            return Response({'message': 'Agent updated successfully.'}, status=200)
         except PyMongoError as e:
-            return Response({'detail': f"Database error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'detail': f"Database error: {str(e)}"}, status=500)
         except Exception as e:
-            return Response({'detail': f"Unexpected error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+            return Response({'detail': f"Unexpected error: {str(e)}"}, status=500)
 
 
 class DeleteAgentAPIView(APIView):
+    authentication_classes = []  # We are using custom auth
+    permission_classes = []      # No DRF permission checks
+
+    @method_decorator(csrf_exempt)
+    @method_decorator(jwt_required)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
+
     @extend_schema(
         responses={
-            204: 'Agent deleted successfully.',
-            404: 'Agent not found.',
-            500: 'Server error'
+            204: OpenApiResponse(description='Agent deleted successfully.'),
+            403: OpenApiResponse(description='Unauthorized access'),
+            404: OpenApiResponse(description='Agent not found.'),
+            500: OpenApiResponse(description='Server error')
         },
-        description="Delete an agent by agent_id."
+        description="🗑️ Delete an agent by `agent_id`. Superadmin access only."
     )
     def delete(self, request, agent_id):
+        user = getattr(request, 'jwt_user', None)
+        if not user or user.get('role') != 'superadmin':
+            return Response({'error': 'Unauthorized'}, status=403)
+
         try:
             agents_collection = get_agent_collection()
-
-            # Check if agent exists before deletion
             agent = agents_collection.find_one({'agent_id': agent_id})
             if not agent:
-                return Response({'detail': 'Agent not found.'}, status=status.HTTP_404_NOT_FOUND)
+                return Response({'detail': 'Agent not found.'}, status=404)
 
             agents_collection.delete_one({'agent_id': agent_id})
-
-            return Response({'message': 'Agent deleted successfully.'},status=status.HTTP_204_NO_CONTENT)
-
+            return Response({'message': 'Agent deleted successfully.'}, status=204)
         except PyMongoError as e:
-            return Response({'detail': f"Database error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'detail': f"Database error: {str(e)}"}, status=500)
         except Exception as e:
-            return Response({'detail': f"Unexpected error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'detail': f"Unexpected error: {str(e)}"}, status=500)
 
+
+import traceback
 
 
 class AgentDetailAPIView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    @method_decorator(csrf_exempt)
+    @method_decorator(jwt_required)
+    def dispatch(self, *args, **kwargs):
+        return super().dispatch(*args, **kwargs)
     @extend_schema(
-        summary="Retrieve agent details",
-        description="Fetch a single agent by agent_id and return related conversations.",
+        summary="Get agent details by agent_id",
+        description="Returns detailed info of a specific agent. Only accessible by superadmin.",
         responses={
-            200: {
+            200: OpenApiResponse(response={
                 'type': 'object',
                 'properties': {
-                    'agent': {'type': 'object'},
-                    'conversations': {'type': 'array', 'items': {'type': 'object'}}
+                    'agent': {'type': 'object'}
                 }
-            },
-            404: {'description': 'Agent not found'},
-            500: {'description': 'Unexpected or database error'}
+            }),
+            403: OpenApiResponse(description="Unauthorized access"),
+            404: OpenApiResponse(description="Agent not found"),
+            500: OpenApiResponse(description="Internal server error")
         }
     )
-    def get(self, request, agent_id):
-        agents_collection = get_agent_collection()
-        conversations_collection = get_conversations_collection()
+    def get(self,  agent_id):
+        # user = getattr(request, 'jwt_user', None)
+        # if not user or user.get('role') != 'superadmin':
+        #     return Response({'error': 'Unauthorized'}, status=403)
 
         try:
-            agent = agents_collection.find_one({'agent_id': agent_id})
+            agents_collection = get_admin_collection()
+            agent = agents_collection.find_one({'admin_id': agent_id, 'role': 'agent'})
             if not agent:
-                return Response({'detail': 'Agent not found'}, status=status.HTTP_404_NOT_FOUND)
+                return Response({'error': 'Agent not found'}, status=404)
 
-            conversations = list(conversations_collection.find({'agent_id': agent_id}))
-
-            # Convert ObjectId fields to string
             agent['_id'] = str(agent['_id'])
-            for conv in conversations:
-                if '_id' in conv:
-                    conv['_id'] = str(conv['_id'])
-
-            return Response({
-                'agent': agent,
-                'conversations': conversations
-            }, status=status.HTTP_200_OK)
-
-        except PyMongoError as e:
-            return Response({'detail': f"Database error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'agent': agent}, status=200)
 
         except Exception as e:
-            return Response({'detail': f"Unexpected error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            traceback.print_exc()
+            return Response({'error': f"Internal error: {str(e)}"}, status=500)
+
+
 
 
 class AssignAgentToRoom(APIView):
@@ -422,6 +469,8 @@ def conversation_list(request):
             "total_count": 0
         }, status=500)
 
+from django.http import JsonResponse
+
 def chat_room_view(request, room_id):
     try:
         collection = get_chat_collection()
@@ -431,12 +480,19 @@ def chat_room_view(request, room_id):
             msg['_id'] = str(msg['_id'])
             msg['timestamp'] = msg['timestamp'].isoformat()
 
+        return JsonResponse({
+            'success': True,
+            'messages': messages,
+            'room_id': room_id
+        })
+
     except Exception as e:
-        messages = []
-        messages.error(request, f"Failed to load chat messages: {e}")
-
-    return render(request, 'dashboard/chat_room.html', {'messages': messages, 'room_id': room_id})
-
+        return JsonResponse({
+            'success': False,
+            'error': f"Failed to load chat messages: {str(e)}",
+            'messages': [],
+            'room_id': room_id
+        }, status=500)
 
 
 def widget_conversations(request, widget_id):

@@ -414,24 +414,16 @@ for testing with frontend template
     
 #     return render(request, 'chat/user_chat.html', {'room_id': room_id})
 
-import requests
-import json
-from datetime import datetime
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
-
 class UserChatAPIView(APIView):
     @swagger_auto_schema(
-        operation_description="Create a new chat room for a given widget ID and return the room ID, widget details, and user's IP geolocation",
+        operation_description="Create a new chat room for a given widget ID and IP address, and return the room ID, widget details, and user's IP geolocation",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
                 'widget_id': openapi.Schema(type=openapi.TYPE_STRING, description='Widget ID to associate the room with'),
+                'ip': openapi.Schema(type=openapi.TYPE_STRING, description='IP address of the user (sent from frontend)'),
             },
-            required=['widget_id']
+            required=['widget_id', 'ip']
         ),
         responses={
             201: openapi.Response('Room created successfully', schema=openapi.Schema(
@@ -443,7 +435,7 @@ class UserChatAPIView(APIView):
                         properties={
                             'widget_id': openapi.Schema(type=openapi.TYPE_STRING, description='Widget ID'),
                             'widget_type': openapi.Schema(type=openapi.TYPE_STRING, description='Type of the widget'),
-                            'name': openapi.Schema(type=openapi.TYPE_STRING, description='Name of the widget'),
+                            'name': openapi.Schema(type=openapi.TYPE_STRING, description='Name of the widget'), 
                             'color': openapi.Schema(type=openapi.TYPE_STRING, description='Color of the widget'),
                             'language': openapi.Schema(type=openapi.TYPE_STRING, description='Language of the widget'),
                         }
@@ -464,7 +456,6 @@ class UserChatAPIView(APIView):
                             ),
                             'region': openapi.Schema(type=openapi.TYPE_STRING, description='User region/state'),
                             'timezone': openapi.Schema(type=openapi.TYPE_STRING, description='User timezone'),
-                            # 'isp': openapi.Schema(type=openapi.TYPE_STRING, description='Internet Service Provider'),
                         }
                     )
                 }
@@ -485,175 +476,368 @@ class UserChatAPIView(APIView):
     )
     def post(self, request):
         widget_id = request.data.get("widget_id")
-        print("Received widget_id:", widget_id)
+        client_ip = self.get_client_ip(request)
 
-        # Validate widget_id
         if not widget_id:
-            print("No widget_id provided")
             return Response({"error": "Widget ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not client_ip:
+            return Response({"error": "IP address is required from frontend"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # # Get client's IP address
-        # client_ip = self.get_client_ip(request)
-        # print(f"Client IP: {client_ip}")
+        # Get geolocation for given IP
+        ip_info = self.get_ip_geolocation(client_ip)
 
-        # # Fetch IP geolocation information
-        # ip_info = self.get_ip_geolocation(client_ip)
-        
-        # Fetch widget collection
         widget_collection = get_widget_collection()
         room_collection = get_room_collection()
 
-        # Validate widget existence
         widget = widget_collection.find_one({"widget_id": widget_id})
         if not widget:
             return Response({"error": "Widget not found"}, status=status.HTTP_404_NOT_FOUND)
 
         # Generate a unique room_id
         room_id = generate_room_id()
-        existing_room = room_collection.find_one({'room_id': room_id})
-        
-        while existing_room:
+        while room_collection.find_one({'room_id': room_id}):
             room_id = generate_room_id()
-            existing_room = room_collection.find_one({'room_id': room_id})
 
-        # Create a new room associated with the widget_id and include IP info
         room_document = {
             'room_id': room_id,
             'widget_id': widget_id,
             'is_active': True,
             'created_at': datetime.now(),
             'assigned_agent': None,
-            # IP and location information
-            # 'user_ip': client_ip,
-            # 'user_location': {
-            #     'country': ip_info.get('country', 'Unknown'),
-            #     'city': ip_info.get('city', 'Unknown'),
-            #     'region': ip_info.get('region', ''),
-            #     'country_code': ip_info.get('country_code', ''),
-            #     'timezone': ip_info.get('timezone', ''),
-            #     # 'isp': ip_info.get('isp', ''),
-            #     'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
-            #     'flag_url': ip_info.get('flag', {}).get('url', ''),
-            # }
+            'user_location': {
+                'user_ip': client_ip,
+                'country': ip_info.get('country', 'Unknown'),
+                'city': ip_info.get('city', 'Unknown'),
+                'region': ip_info.get('region', ''),
+                'country_code': ip_info.get('country_code', ''),
+                'timezone': ip_info.get('timezone', ''),
+                'flag_emoji': ip_info.get('flag')['emoji'] if ip_info.get('flag') else '',
+                'flag_url': ip_info.get('flag')['url'] if ip_info.get('flag') else '',
+            }
         }
-        
         insert_with_timestamps(room_collection, room_document)
-        
-        # Prepare widget details to return
-        widget_details = {
-            "widget_id": widget["widget_id"],
-            "widget_type": widget.get("widget_type"),
-            "name": widget.get("name"),
-            "color": widget.get("color"),
-            "language": widget.get("language", "en"),
-        }
 
-        # Prepare response data
         response_data = {
             "room_id": room_id,
-            "widget": widget_details,
-            # "user_location": {
-            #     "ip": client_ip,
-            #     "country": ip_info.get('country', 'Unknown'),
-            #     "city": ip_info.get('city', 'Unknown'),
-            #     "region": ip_info.get('region', ''),
-            #     "timezone": ip_info.get('timezone', ''),
-            #     'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
-            #     'flag_url': ip_info.get('flag', {}).get('url', ''),
-            #     # "isp": ip_info.get('isp', ''),
-            # }
+            "widget": {
+                "widget_id": widget["widget_id"],
+                "widget_type": widget.get("widget_type"),
+                "name": widget.get("name"),
+                "color": widget.get("color"),
+                "language": widget.get("language", "en"),
+            },
+            "user_location": {
+                "ip": client_ip,
+                "country": ip_info.get('country', 'Unknown'),
+                "city": ip_info.get('city', 'Unknown'),
+                "region": ip_info.get('region', ''),
+                "timezone": ip_info.get('timezone', ''),
+                'flag_emoji': ip_info.get('flag')['emoji'] if ip_info.get('flag') else '',
+                'flag_url': ip_info.get('flag')['url'] if ip_info.get('flag') else '',
+
+            }
         }
-        
-        # Add flag information if available
-        # if ip_info.get('flag'):
-        #     response_data["user_location"]["flag"] = ip_info['flag']
+
+        if ip_info.get('flag'):
+            response_data["user_location"]["flag"] = ip_info['flag']
 
         return Response(response_data, status=status.HTTP_201_CREATED)
 
-    # def get_client_ip(self, request):
-    #     """
-    #     Get the client's real IP address from request headers
-    #     """
-    #     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    #     if x_forwarded_for:
-    #         ip = x_forwarded_for.split(',')[0].strip()
-    #     else:
-    #         ip = request.META.get('REMOTE_ADDR')
-    #     return ip
+    def get_client_ip(self, request):
+        """
+        Get IP address directly from frontend-provided input (not headers).
+        """
+        return request.data.get("ip")
 
-    # def get_ip_geolocation(self, ip_address):
-    #     """
-    #     Get geolocation information for the given IP address
-    #     """
-    #     if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1']:
-    #         return {
-    #             'country': 'Local',
-    #             'city': 'Local',
-    #             'region': 'Local',
-    #             'country_code': '',
-    #             'timezone': '',
-    #             # 'isp': 'Local',
-    #             'flag': None
-    #         }
+    def get_ip_geolocation(self, ip_address):
+        """
+        Call IPWHO API to fetch user geolocation data.
+        """
+        if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1']:
+            return {
+                'country': 'Local',
+                'city': 'Local',
+                'region': 'Local',
+                'country_code': '',
+                'timezone': '',
+                'flag': None
+            }
 
-    #     try:
-    #         # Using ipwhois.pro API - replace with your API key
-    #         api_url = f'https://ipwhois.pro/{ip_address}?key=8HaX4qcer2Ml9Hfc'
-    #         print(f"DEBUG: Fetching geolocation from: {api_url}")
-            
-    #         response = requests.get(api_url, timeout=10)
-    #         print(f"DEBUG: Geolocation API response status: {response.status_code}")
-            
-    #         if response.status_code == 200:
-    #             data = response.json()
-    #             print(f"DEBUG: Geolocation data: {data}")
-                
-    #             # Check if API returned success
-    #             if data.get('success', True):
-    #                 result = {
-    #                     'country': data.get('country', 'Unknown'),
-    #                     'city': data.get('city', 'Unknown'),
-    #                     'region': data.get('region', ''),
-    #                     'country_code': data.get('country_code', ''),
-    #                     'timezone': data.get('timezone', ''),
-    #                     # 'isp': data.get('isp', ''),
-    #                 }
-                    
-    #                 # Handle flag generation
-    #                 country_code = data.get('country_code', '').upper()
-    #                 if country_code and len(country_code) == 2:
-    #                     result['flag'] = {
-    #                         'emoji': ''.join(chr(ord(c) + 127397) for c in country_code),
-    #                         'url': f"https://flagcdn.com/32x24/{country_code.lower()}.png",
-    #                         'country_code': country_code
-    #                     }
-                    
-    #                 return result
-    #             else:
-    #                 print(f"DEBUG: API returned error: {data.get('message', 'Unknown error')}")
-                    
-    #         else:
-    #             print(f"DEBUG: API request failed with status: {response.status_code}")
-                
-    #     except requests.exceptions.Timeout:
-    #         print("DEBUG: IP geolocation request timed out")
-    #     except requests.exceptions.RequestException as e:
-    #         print(f"DEBUG: Network error during IP geolocation: {str(e)}")
-    #     except json.JSONDecodeError:
-    #         print("DEBUG: Invalid JSON response from IP geolocation API")
-    #     except Exception as e:
-    #         print(f"DEBUG: Unexpected error during IP geolocation: {str(e)}")
+        try:
+            api_url = f'https://ipwhois.pro/{ip_address}?key=8HaX4qcer2Ml9Hfc'
+            response = requests.get(api_url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('success', True):
+                    country_code = data.get('country_code', '').upper()
+                    flag = {
+                        'emoji': ''.join(chr(ord(c) + 127397) for c in country_code),
+                        'url': f"https://flagcdn.com/32x24/{country_code.lower()}.png",
+                        'country_code': country_code
+                    } if country_code and len(country_code) == 2 else None
+
+                    return {
+                        'country': data.get('country', 'Unknown'),
+                        'city': data.get('city', 'Unknown'),
+                        'region': data.get('region', ''),
+                        'country_code': country_code,
+                        'timezone': data.get('timezone', ''),
+                        'flag': flag
+                    }
+
+        except Exception as e:
+            print(f"[Geolocation Error] {str(e)}")
+
+        return {
+            'country': 'Unknown',
+            'city': 'Unknown',
+            'region': '',
+            'country_code': '',
+            'timezone': '',
+            'flag': None
+        }
+
+
+# import requests
+# import json
+# from datetime import datetime
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+# from drf_yasg.utils import swagger_auto_schema
+# from drf_yasg import openapi
+
+# class UserChatAPIView(APIView):
+#     @swagger_auto_schema(
+#         operation_description="Create a new chat room for a given widget ID and return the room ID, widget details, and user's IP geolocation",
+#         request_body=openapi.Schema(
+#             type=openapi.TYPE_OBJECT,
+#             properties={
+#                 'widget_id': openapi.Schema(type=openapi.TYPE_STRING, description='Widget ID to associate the room with'),
+#             },
+#             required=['widget_id']
+#         ),
+#         responses={
+#             201: openapi.Response('Room created successfully', schema=openapi.Schema(
+#                 type=openapi.TYPE_OBJECT,
+#                 properties={
+#                     'room_id': openapi.Schema(type=openapi.TYPE_STRING, description='Generated Room ID'),
+#                     'widget': openapi.Schema(
+#                         type=openapi.TYPE_OBJECT,
+#                         properties={
+#                             'widget_id': openapi.Schema(type=openapi.TYPE_STRING, description='Widget ID'),
+#                             'widget_type': openapi.Schema(type=openapi.TYPE_STRING, description='Type of the widget'),
+#                             'name': openapi.Schema(type=openapi.TYPE_STRING, description='Name of the widget'), 
+#                             'color': openapi.Schema(type=openapi.TYPE_STRING, description='Color of the widget'),
+#                             'language': openapi.Schema(type=openapi.TYPE_STRING, description='Language of the widget'),
+#                         }
+#                     ),
+#                     'user_location': openapi.Schema(
+#                         type=openapi.TYPE_OBJECT,
+#                         properties={
+#                             'ip': openapi.Schema(type=openapi.TYPE_STRING, description='User IP address'),
+#                             'country': openapi.Schema(type=openapi.TYPE_STRING, description='User country'),
+#                             'city': openapi.Schema(type=openapi.TYPE_STRING, description='User city'),
+#                             'flag': openapi.Schema(
+#                                 type=openapi.TYPE_OBJECT,
+#                                 properties={
+#                                     'emoji': openapi.Schema(type=openapi.TYPE_STRING, description='Country flag emoji'),
+#                                     'url': openapi.Schema(type=openapi.TYPE_STRING, description='Country flag image URL'),
+#                                     'country_code': openapi.Schema(type=openapi.TYPE_STRING, description='ISO country code'),
+#                                 }
+#                             ),
+#                             'region': openapi.Schema(type=openapi.TYPE_STRING, description='User region/state'),
+#                             'timezone': openapi.Schema(type=openapi.TYPE_STRING, description='User timezone'),
+#                             # 'isp': openapi.Schema(type=openapi.TYPE_STRING, description='Internet Service Provider'),
+#                         }
+#                     )
+#                 }
+#             )),
+#             400: openapi.Response('Bad Request', schema=openapi.Schema(
+#                 type=openapi.TYPE_OBJECT,
+#                 properties={
+#                     'error': openapi.Schema(type=openapi.TYPE_STRING, description='Error message')
+#                 }
+#             )),
+#             404: openapi.Response('Widget Not Found', schema=openapi.Schema(
+#                 type=openapi.TYPE_OBJECT,
+#                 properties={
+#                     'error': openapi.Schema(type=openapi.TYPE_STRING, description='Error message')
+#                 }
+#             ))
+#         }
+#     )
+#     def post(self, request):
+#         widget_id = request.data.get("widget_id")
+#         print("Received widget_id:", widget_id)
+
+#         # Validate widget_id
+#         if not widget_id:
+#             print("No widget_id provided")
+#             return Response({"error": "Widget ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+#         # Get client's IP address
+#         client_ip = self.get_client_ip(request)
+#         print(f"Client IP: {client_ip}")
+
+#         # Fetch IP geolocation information
+#         ip_info = self.get_ip_geolocation(client_ip)
         
-    #     # Return default values if geolocation fails
-    #     return {
-    #         'country': 'Unknown',
-    #         'city': 'Unknown',
-    #         'region': '',
-    #         'country_code': '',
-    #         'timezone': '',
-    #         # 'isp': '',
-    #         'flag': None
-    #     }
+#         # Fetch widget collection
+#         widget_collection = get_widget_collection()
+#         room_collection = get_room_collection()
+
+#         # Validate widget existence
+#         widget = widget_collection.find_one({"widget_id": widget_id})
+#         if not widget:
+#             return Response({"error": "Widget not found"}, status=status.HTTP_404_NOT_FOUND)
+
+#         # Generate a unique room_id
+#         room_id = generate_room_id()
+#         existing_room = room_collection.find_one({'room_id': room_id})
+        
+#         while existing_room:
+#             room_id = generate_room_id()
+#             existing_room = room_collection.find_one({'room_id': room_id})
+
+#         # Create a new room associated with the widget_id and include IP info
+#         room_document = {
+#             'room_id': room_id,
+#             'widget_id': widget_id,
+#             'is_active': True,
+#             'created_at': datetime.now(),
+#             'assigned_agent': None,
+#             # IP and location information
+#             'user_location': {
+#                 'user_ip': client_ip,
+#                 'country': ip_info.get('country', 'Unknown'),
+#                 'city': ip_info.get('city', 'Unknown'),
+#                 'region': ip_info.get('region', ''),
+#                 'country_code': ip_info.get('country_code', ''),
+#                 'timezone': ip_info.get('timezone', ''),
+#                 # 'isp': ip_info.get('isp', ''),
+#                 'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
+#                 'flag_url': ip_info.get('flag', {}).get('url', ''),
+#             }
+#         }
+        
+#         insert_with_timestamps(room_collection, room_document)
+        
+#         # Prepare widget details to return
+#         widget_details = {
+#             "widget_id": widget["widget_id"],
+#             "widget_type": widget.get("widget_type"),
+#             "name": widget.get("name"),
+#             "color": widget.get("color"),
+#             "language": widget.get("language", "en"),
+#         }
+
+#         # Prepare response data
+#         response_data = {
+#             "room_id": room_id,
+#             "widget": widget_details,
+#             "user_location": {
+#                 "ip": client_ip,
+#                 "country": ip_info.get('country', 'Unknown'),
+#                 "city": ip_info.get('city', 'Unknown'),
+#                 "region": ip_info.get('region', ''),
+#                 "timezone": ip_info.get('timezone', ''),
+#                 'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
+#                 'flag_url': ip_info.get('flag', {}).get('url', ''),
+#                 # "isp": ip_info.get('isp', ''),
+#             }
+#         }
+        
+#         # Add flag information if available
+#         if ip_info.get('flag'):
+#             response_data["user_location"]["flag"] = ip_info['flag']
+
+#         return Response(response_data, status=status.HTTP_201_CREATED)
+
+#     def get_client_ip(self, request):
+#         """
+#         Get the client's real IP address from request headers
+#         """
+#         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+#         if x_forwarded_for:
+#             ip = x_forwarded_for.split(',')[0].strip()
+#         else:
+#             ip = request.META.get('REMOTE_ADDR')
+#         return ip
+
+#     def get_ip_geolocation(self, ip_address):
+#         """
+#         Get geolocation information for the given IP address
+#         """
+#         if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1']:
+#             return {
+#                 'country': 'Local',
+#                 'city': 'Local',
+#                 'region': 'Local',
+#                 'country_code': '',
+#                 'timezone': '',
+#                 # 'isp': 'Local',
+#                 'flag': None
+#             }
+
+#         try:
+#             # Using ipwhois.pro API - replace with your API key
+#             api_url = f'https://ipwhois.pro/{ip_address}?key=8HaX4qcer2Ml9Hfc'
+#             print(f"DEBUG: Fetching geolocation from: {api_url}")
+            
+#             response = requests.get(api_url, timeout=10)
+#             print(f"DEBUG: Geolocation API response status: {response.status_code}")
+            
+#             if response.status_code == 200:
+#                 data = response.json()
+#                 print(f"DEBUG: Geolocation data: {data}")
+                
+#                 # Check if API returned success
+#                 if data.get('success', True):
+#                     result = {
+#                         'country': data.get('country', 'Unknown'),
+#                         'city': data.get('city', 'Unknown'),
+#                         'region': data.get('region', ''),
+#                         'country_code': data.get('country_code', ''),
+#                         'timezone': data.get('timezone', ''),
+#                         # 'isp': data.get('isp', ''),
+#                     }
+                    
+#                     # Handle flag generation
+#                     country_code = data.get('country_code', '').upper()
+#                     if country_code and len(country_code) == 2:
+#                         result['flag'] = {
+#                             'emoji': ''.join(chr(ord(c) + 127397) for c in country_code),
+#                             'url': f"https://flagcdn.com/32x24/{country_code.lower()}.png",
+#                             'country_code': country_code
+#                         }
+                    
+#                     return result
+#                 else:
+#                     print(f"DEBUG: API returned error: {data.get('message', 'Unknown error')}")
+                    
+#             else:
+#                 print(f"DEBUG: API request failed with status: {response.status_code}")
+                
+#         except requests.exceptions.Timeout:
+#             print("DEBUG: IP geolocation request timed out")
+#         except requests.exceptions.RequestException as e:
+#             print(f"DEBUG: Network error during IP geolocation: {str(e)}")
+#         except json.JSONDecodeError:
+#             print("DEBUG: Invalid JSON response from IP geolocation API")
+#         except Exception as e:
+#             print(f"DEBUG: Unexpected error during IP geolocation: {str(e)}")
+        
+#         # Return default values if geolocation fails
+#         return {
+#             'country': 'Unknown',
+#             'city': 'Unknown',
+#             'region': '',
+#             'country_code': '',
+#             'timezone': '',
+#             # 'isp': '',
+#             'flag': None
+#         }
 
 
 class ActiveRoomsAPIView(APIView):
@@ -1041,7 +1225,16 @@ class ChatMessagesAPIView(APIView):
         
         for msg in messages:
             msg['_id'] = str(msg['_id'])
-            msg['timestamp'] = msg['timestamp'].isoformat()
+            msg['timestamp'] = msg['timestamp'],datetime.isoformat() if isinstance(msg['timestamp'], datetime) else msg['timestamp']
+            # Ensure timestamp is in ISO format 
+            if isinstance(msg['timestamp'], str):
+                try:
+                    msg['timestamp'] = datetime.fromisoformat(msg['timestamp']).isoformat()
+                except ValueError:
+                    pass
+            # Convert timestamp to ISO format if it's a datetime object
+            elif isinstance(msg['timestamp'], datetime):
+                msg['timestamp'] = msg['timestamp'].isoformat()
 
         return Response({'messages': messages}, status=status.HTTP_200_OK)
 

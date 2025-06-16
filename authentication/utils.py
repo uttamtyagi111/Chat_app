@@ -65,6 +65,6 @@ def jwt_required(view_func):
         if not payload:
             return JsonResponse({"error": "Invalid or expired token"}, status=401)
 
-        request.user = payload  # Inject the decoded token into request
+        request.jwt_user = payload  # ✅ Use a separate name
         return view_func(request, *args, **kwargs)
     return _wrapped_view
