@@ -492,12 +492,12 @@ class UserChatAPIView(APIView):
             print("No widget_id provided")
             return Response({"error": "Widget ID is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get client's IP address
-        client_ip = self.get_client_ip(request)
-        print(f"Client IP: {client_ip}")
+        # # Get client's IP address
+        # client_ip = self.get_client_ip(request)
+        # print(f"Client IP: {client_ip}")
 
-        # Fetch IP geolocation information
-        ip_info = self.get_ip_geolocation(client_ip)
+        # # Fetch IP geolocation information
+        # ip_info = self.get_ip_geolocation(client_ip)
         
         # Fetch widget collection
         widget_collection = get_widget_collection()
@@ -524,17 +524,17 @@ class UserChatAPIView(APIView):
             'created_at': datetime.now(),
             'assigned_agent': None,
             # IP and location information
-            'user_ip': client_ip,
-            'user_location': {
-                'country': ip_info.get('country', 'Unknown'),
-                'city': ip_info.get('city', 'Unknown'),
-                'region': ip_info.get('region', ''),
-                'country_code': ip_info.get('country_code', ''),
-                'timezone': ip_info.get('timezone', ''),
-                # 'isp': ip_info.get('isp', ''),
-                'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
-                'flag_url': ip_info.get('flag', {}).get('url', ''),
-            }
+            # 'user_ip': client_ip,
+            # 'user_location': {
+            #     'country': ip_info.get('country', 'Unknown'),
+            #     'city': ip_info.get('city', 'Unknown'),
+            #     'region': ip_info.get('region', ''),
+            #     'country_code': ip_info.get('country_code', ''),
+            #     'timezone': ip_info.get('timezone', ''),
+            #     # 'isp': ip_info.get('isp', ''),
+            #     'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
+            #     'flag_url': ip_info.get('flag', {}).get('url', ''),
+            # }
         }
         
         insert_with_timestamps(room_collection, room_document)
@@ -552,108 +552,108 @@ class UserChatAPIView(APIView):
         response_data = {
             "room_id": room_id,
             "widget": widget_details,
-            "user_location": {
-                "ip": client_ip,
-                "country": ip_info.get('country', 'Unknown'),
-                "city": ip_info.get('city', 'Unknown'),
-                "region": ip_info.get('region', ''),
-                "timezone": ip_info.get('timezone', ''),
-                'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
-                'flag_url': ip_info.get('flag', {}).get('url', ''),
-                # "isp": ip_info.get('isp', ''),
-            }
+            # "user_location": {
+            #     "ip": client_ip,
+            #     "country": ip_info.get('country', 'Unknown'),
+            #     "city": ip_info.get('city', 'Unknown'),
+            #     "region": ip_info.get('region', ''),
+            #     "timezone": ip_info.get('timezone', ''),
+            #     'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
+            #     'flag_url': ip_info.get('flag', {}).get('url', ''),
+            #     # "isp": ip_info.get('isp', ''),
+            # }
         }
         
         # Add flag information if available
-        if ip_info.get('flag'):
-            response_data["user_location"]["flag"] = ip_info['flag']
+        # if ip_info.get('flag'):
+        #     response_data["user_location"]["flag"] = ip_info['flag']
 
         return Response(response_data, status=status.HTTP_201_CREATED)
 
-    def get_client_ip(self, request):
-        """
-        Get the client's real IP address from request headers
-        """
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0].strip()
-        else:
-            ip = request.META.get('REMOTE_ADDR')
-        return ip
+    # def get_client_ip(self, request):
+    #     """
+    #     Get the client's real IP address from request headers
+    #     """
+    #     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    #     if x_forwarded_for:
+    #         ip = x_forwarded_for.split(',')[0].strip()
+    #     else:
+    #         ip = request.META.get('REMOTE_ADDR')
+    #     return ip
 
-    def get_ip_geolocation(self, ip_address):
-        """
-        Get geolocation information for the given IP address
-        """
-        if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1']:
-            return {
-                'country': 'Local',
-                'city': 'Local',
-                'region': 'Local',
-                'country_code': '',
-                'timezone': '',
-                # 'isp': 'Local',
-                'flag': None
-            }
+    # def get_ip_geolocation(self, ip_address):
+    #     """
+    #     Get geolocation information for the given IP address
+    #     """
+    #     if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1']:
+    #         return {
+    #             'country': 'Local',
+    #             'city': 'Local',
+    #             'region': 'Local',
+    #             'country_code': '',
+    #             'timezone': '',
+    #             # 'isp': 'Local',
+    #             'flag': None
+    #         }
 
-        try:
-            # Using ipwhois.pro API - replace with your API key
-            api_url = f'https://ipwhois.pro/{ip_address}?key=8HaX4qcer2Ml9Hfc'
-            print(f"DEBUG: Fetching geolocation from: {api_url}")
+    #     try:
+    #         # Using ipwhois.pro API - replace with your API key
+    #         api_url = f'https://ipwhois.pro/{ip_address}?key=8HaX4qcer2Ml9Hfc'
+    #         print(f"DEBUG: Fetching geolocation from: {api_url}")
             
-            response = requests.get(api_url, timeout=10)
-            print(f"DEBUG: Geolocation API response status: {response.status_code}")
+    #         response = requests.get(api_url, timeout=10)
+    #         print(f"DEBUG: Geolocation API response status: {response.status_code}")
             
-            if response.status_code == 200:
-                data = response.json()
-                print(f"DEBUG: Geolocation data: {data}")
+    #         if response.status_code == 200:
+    #             data = response.json()
+    #             print(f"DEBUG: Geolocation data: {data}")
                 
-                # Check if API returned success
-                if data.get('success', True):
-                    result = {
-                        'country': data.get('country', 'Unknown'),
-                        'city': data.get('city', 'Unknown'),
-                        'region': data.get('region', ''),
-                        'country_code': data.get('country_code', ''),
-                        'timezone': data.get('timezone', ''),
-                        # 'isp': data.get('isp', ''),
-                    }
+    #             # Check if API returned success
+    #             if data.get('success', True):
+    #                 result = {
+    #                     'country': data.get('country', 'Unknown'),
+    #                     'city': data.get('city', 'Unknown'),
+    #                     'region': data.get('region', ''),
+    #                     'country_code': data.get('country_code', ''),
+    #                     'timezone': data.get('timezone', ''),
+    #                     # 'isp': data.get('isp', ''),
+    #                 }
                     
-                    # Handle flag generation
-                    country_code = data.get('country_code', '').upper()
-                    if country_code and len(country_code) == 2:
-                        result['flag'] = {
-                            'emoji': ''.join(chr(ord(c) + 127397) for c in country_code),
-                            'url': f"https://flagcdn.com/32x24/{country_code.lower()}.png",
-                            'country_code': country_code
-                        }
+    #                 # Handle flag generation
+    #                 country_code = data.get('country_code', '').upper()
+    #                 if country_code and len(country_code) == 2:
+    #                     result['flag'] = {
+    #                         'emoji': ''.join(chr(ord(c) + 127397) for c in country_code),
+    #                         'url': f"https://flagcdn.com/32x24/{country_code.lower()}.png",
+    #                         'country_code': country_code
+    #                     }
                     
-                    return result
-                else:
-                    print(f"DEBUG: API returned error: {data.get('message', 'Unknown error')}")
+    #                 return result
+    #             else:
+    #                 print(f"DEBUG: API returned error: {data.get('message', 'Unknown error')}")
                     
-            else:
-                print(f"DEBUG: API request failed with status: {response.status_code}")
+    #         else:
+    #             print(f"DEBUG: API request failed with status: {response.status_code}")
                 
-        except requests.exceptions.Timeout:
-            print("DEBUG: IP geolocation request timed out")
-        except requests.exceptions.RequestException as e:
-            print(f"DEBUG: Network error during IP geolocation: {str(e)}")
-        except json.JSONDecodeError:
-            print("DEBUG: Invalid JSON response from IP geolocation API")
-        except Exception as e:
-            print(f"DEBUG: Unexpected error during IP geolocation: {str(e)}")
+    #     except requests.exceptions.Timeout:
+    #         print("DEBUG: IP geolocation request timed out")
+    #     except requests.exceptions.RequestException as e:
+    #         print(f"DEBUG: Network error during IP geolocation: {str(e)}")
+    #     except json.JSONDecodeError:
+    #         print("DEBUG: Invalid JSON response from IP geolocation API")
+    #     except Exception as e:
+    #         print(f"DEBUG: Unexpected error during IP geolocation: {str(e)}")
         
-        # Return default values if geolocation fails
-        return {
-            'country': 'Unknown',
-            'city': 'Unknown',
-            'region': '',
-            'country_code': '',
-            'timezone': '',
-            # 'isp': '',
-            'flag': None
-        }
+    #     # Return default values if geolocation fails
+    #     return {
+    #         'country': 'Unknown',
+    #         'city': 'Unknown',
+    #         'region': '',
+    #         'country_code': '',
+    #         'timezone': '',
+    #         # 'isp': '',
+    #         'flag': None
+    #     }
 
 
 class ActiveRoomsAPIView(APIView):
