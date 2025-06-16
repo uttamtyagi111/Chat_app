@@ -142,7 +142,7 @@ def send_otp_email(email, otp, purpose="password_reset"):
         return {'success': False, 'error': 'Failed to send email. Please contact support.'}
 
 
-def send_password_reset_confirmation(email, username=None):
+def send_password_reset_confirmation(email, name=None):
     """
     Send confirmation email after successful password reset.
     
@@ -157,7 +157,7 @@ def send_password_reset_confirmation(email, username=None):
         subject = 'Password Reset Successful - Wish Geeks Techserve'
         
         context = {
-            'username': username or email.split('@')[0],
+            'name': name or email.split('@')[0],
             'email': email,
             'company_name': 'Wish Geeks Techserve',
             'support_email': os.getenv('SUPPORT_EMAIL', 'support@wishgeekstechserve.com')
@@ -171,7 +171,7 @@ def send_password_reset_confirmation(email, username=None):
             <html>
             <body>
                 <h2>Password Reset Successful</h2>
-                <p>Dear {context['username']},</p>
+                <p>Dear {context['name']},</p>
                 <p>Your password has been successfully reset.</p>
                 <p>If you did not request this change, please contact our support team immediately.</p>
                 <p>Best regards,<br>Wish Geeks Techserve</p>

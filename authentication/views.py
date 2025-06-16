@@ -25,6 +25,11 @@ def register_superadmin(request):
 
     if request.method == 'POST':
         data = json.loads(request.body)
+        data['name'] = data.get('name', '').strip()
+        if not data.get('name'):    
+            return JsonResponse({"error": "Username is required"}, status=400)
+        if len(data['name']) < 3:
+            return JsonResponse({"error": "Username must be at least 3 characters long"}, status=400)
         data['email'] = data.get('email', '').lower()
         if not data.get('email') or not data.get('password'):
             return JsonResponse({"error": "Email and password are required"}, status=400)
@@ -154,7 +159,7 @@ def create_agent(request):
     data['role'] = 'agent'
     data['admin_id'] = str(uuid.uuid4())
     data['password'] = hash_password(data['password'])
-    data['created_at'] = datetime.now()
+    data['created_at'] = datetime.datetime.utcnow()
     if not data.get('email') or not data.get('password'):
         return JsonResponse({"error": "Email and password are required"}, status=400)
     if not validate_email_format(data['email']):
@@ -314,8 +319,8 @@ def reset_password(request):
         
         # Send confirmation email (optional)
         from utils.email_sender import send_password_reset_confirmation
-        username = user.get('username') or user.get('name')
-        send_password_reset_confirmation(email, username)
+        name = user.get('name') or user.get('name')
+        send_password_reset_confirmation(email, name)
         
         logger.info(f"Password reset successful for {email}")
         return JsonResponse({"message": "Password updated successfully"})
