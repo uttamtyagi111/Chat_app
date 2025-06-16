@@ -55,7 +55,7 @@ def login(request):
     payload = {
         'admin_id': user['admin_id'],
         'email': user['email'],
-        'role': user['role']
+        'role': user['role'],
     }
 
     access_token = generate_access_token(payload)
@@ -64,7 +64,9 @@ def login(request):
     return JsonResponse({
         'access': access_token,
         'refresh': refresh_token,
-        'role': user['role']
+        'role': user['role'],
+        'admin_id': user['admin_id'],
+        'email': user['email'],
     })
 
 
