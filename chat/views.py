@@ -1,15 +1,14 @@
-from wish_bot.db import get_room_collection,get_agent_notes_collection
+from authentication.utils import jwt_required,superadmin_required
+from wish_bot.db import get_admin_collection, get_room_collection,get_agent_notes_collection
 from wish_bot.db import get_widget_collection,insert_with_timestamps
 from wish_bot.db import get_chat_collection
 from datetime import datetime, timedelta
 from utils.redis_client import redis_client
 from django.shortcuts import render
 from django.http import JsonResponse
-from rest_framework.permissions import IsAuthenticated
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from utils.random_id import generate_room_id,generate_widget_id
-# from authentication.permissions import IsSuperAdmin,IsAgent
 import logging
 import uuid
 import json
@@ -21,7 +20,6 @@ from rest_framework.decorators import api_view, permission_classes,authenticatio
 from rest_framework.permissions import AllowAny
 from rest_framework import status
 from django.conf import settings
-# WebSocket documentation for Swagger UI
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
@@ -30,122 +28,168 @@ logger = logging.getLogger(__name__)
 
 from django.views.decorators.http import require_GET, require_http_methods
 import json
-from bson import ObjectId  # If using MongoDB ObjectId (optional, depending on your setup)
-
-# Assuming these helper functions exist in your codebase
-# from your_module import get_widget_collection, generate_widget_id, generate_widget_code, insert_with_timestamps
 
 @require_GET
+@csrf_exempt
+@jwt_required
 def get_widget(request, widget_id=None):
     try:
+        user = request.jwt_user  
+        role = user.get("role")
+        admin_id = user.get("admin_id")
+
         widget_collection = get_widget_collection()
-        
-        # If widget_id is provided, retrieve a single widget
+        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+
+        def format_widget(widget):
+            return {
+                "widget_id": widget["widget_id"],
+                "widget_type": widget["widget_type"],
+                "name": widget["name"],
+                "is_active": widget.get("is_active", False),
+                "created_at": str(widget.get("created_at", "")),
+                "updated_at": str(widget.get("updated_at", "")),
+                "settings": widget.get("settings", {
+                    "position": "right",
+                    "primaryColor": "#10B981",
+                    "welcomeMessage": "",
+                    "offlineMessage": "",
+                    "soundEnabled": True
+                }),
+                "direct_chat_link": f"{base_domain}/direct-chat/{widget['widget_id']}"
+            }
+
         if widget_id:
             widget = widget_collection.find_one({"widget_id": widget_id})
             if not widget:
                 return JsonResponse({"error": "Widget not found"}, status=404)
-            
-            # Convert MongoDB document to JSON-serializable format
-            widget_response = {
-                "widget_id": widget["widget_id"],
-                "widget_type": widget["widget_type"],
-                "name": widget["name"],
-                "color": widget["color"],
-                "language": widget["language"],
-                "is_active": widget["is_active"],
-                "created_at": str(widget.get("created_at", "")),
-                "updated_at": str(widget.get("updated_at", "")),
-            }
-            
-            # Generate the direct chat link
-            base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
-            widget_response["direct_chat_link"] = f"{base_domain}/direct-chat/{widget['widget_id']}"
-            
-            return JsonResponse(widget_response, status=200)
-        
-        # If no widget_id, return a list of all widgets
-        widgets = widget_collection.find()
-        widget_list = []
-        for widget in widgets:
-            widget_response = {
-                "widget_id": widget["widget_id"],
-                "widget_type": widget["widget_type"],
-                "name": widget["name"],
-                "color": widget["color"],
-                "language": widget["language"],
-                "is_active": widget["is_active"],
-                "created_at": str(widget.get("created_at", "")),
-                "updated_at": str(widget.get("updated_at", "")),
-            }
-            base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
-            widget_response["direct_chat_link"] = f"{base_domain}/direct-chat/{widget['widget_id']}"
-            widget_list.append(widget_response)
-        
-        return JsonResponse({"widgets": widget_list}, status=200)
+
+            if role == "agent":
+                agent = get_admin_collection().find_one({"admin_id": admin_id})
+                assigned_widgets = agent.get("assigned_widgets", [])
+                if widget_id not in assigned_widgets:
+                    return JsonResponse({"error": "Access denied to this widget"}, status=403)
+
+            return JsonResponse(format_widget(widget), status=200)
+
+        # Get all widgets based on role
+        if role == "superadmin":
+            widgets = widget_collection.find()
+        elif role == "agent":
+            agent = get_admin_collection().find_one({"admin_id": admin_id})
+            assigned_widgets = agent.get("assigned_widgets", [])
+            widgets = widget_collection.find({"widget_id": {"$in": assigned_widgets}})
+        else:
+            return JsonResponse({"error": "Unauthorized role"}, status=403)
+
+        return JsonResponse({"widgets": [format_widget(w) for w in widgets]}, status=200)
     
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
+
+
 @csrf_exempt
-@require_http_methods(["PUT"])
+@require_http_methods(["PATCH"])
+@jwt_required
 def update_widget(request, widget_id):
     try:
+        user = request.jwt_user
+        role = user.get("role")
+        admin_id = user.get("admin_id")
+
         widget_collection = get_widget_collection()
         widget = widget_collection.find_one({"widget_id": widget_id})
-        
         if not widget:
             return JsonResponse({"error": "Widget not found"}, status=404)
-        
-        # Parse the request body
+
         data = json.loads(request.body)
-        widget_type = data.get("widget_type", widget["widget_type"])
-        name = data.get("name", widget["name"])
-        color = data.get("color", widget["color"])
-        language = data.get("language", widget["language"])
-        is_active = data.get("is_active", widget.get("is_active", False))
-        
-        # Validate required fields
-        if not all([widget_type, name, color]):
-            return JsonResponse({"error": "Missing required fields"}, status=400)
-        
-        # Update the widget
-        updated_widget = {
-            "widget_id": widget_id,
-            "widget_type": widget_type,
-            "name": name,
-            "color": color,
-            "language": language,
-            "is_active": is_active,
-            "created_at": widget["created_at"],  # Preserve the original created_at
-            "updated_at": datetime.utcnow()  # Update the timestamp
+
+        # Common fields to update
+        updated_fields = {
+            "updated_at": datetime.utcnow(),
+            "widget_id": widget["widget_id"],
+            "created_at": widget["created_at"]
         }
-        
-        widget_collection.update_one(
-            {"widget_id": widget_id},
-            {"$set": updated_widget}
-        )
-        
-        # Generate the direct chat link
+
+        # Fetch current settings or fallback to default
+        current_settings = widget.get("settings", {})
+        incoming_settings = data.get("settings", {})
+
+        updated_settings = {
+            "position": incoming_settings.get("position", current_settings.get("position", "right")),
+            "primaryColor": incoming_settings.get("primaryColor", current_settings.get("primaryColor", "#10B981")),
+            "welcomeMessage": incoming_settings.get("welcomeMessage", current_settings.get("welcomeMessage", "")),
+            "offlineMessage": incoming_settings.get("offlineMessage", current_settings.get("offlineMessage", "")),
+            "soundEnabled": incoming_settings.get("soundEnabled", current_settings.get("soundEnabled", True)),
+        }
+
+        if role == "superadmin":
+            # Superadmin: full update
+            widget_type = data.get("widget_type", widget.get("widget_type"))
+            name = data.get("name", widget.get("name"))
+            is_active = data.get("is_active", widget.get("is_active"))
+
+            if not widget_type or not name:
+                return JsonResponse({"error": "Missing required fields: widget_type or name"}, status=400)
+
+            # Check for duplicates
+            duplicate = widget_collection.find_one({
+                "widget_type": widget_type,
+                "name": name,
+                "widget_id": {"$ne": widget_id}
+            })
+            if duplicate:
+                return JsonResponse({"error": "Widget with same name and type already exists."}, status=400)
+
+            updated_fields.update({
+                "widget_type": widget_type,
+                "name": name,
+                "is_active": is_active,
+                "settings": updated_settings
+            })
+
+        elif role == "agent":
+            # Agent: must be assigned to the widget
+            from wish_bot.db import get_admin_collection
+            admin = get_admin_collection().find_one({"admin_id": admin_id})
+            assigned_widgets = admin.get("assigned_widgets", [])
+
+            if widget_id not in assigned_widgets:
+                return JsonResponse({"error": "You are not authorized to update this widget"}, status=403)
+
+            # Allow settings only
+            updated_fields["settings"] = updated_settings
+
+        else:
+            return JsonResponse({"error": "Unauthorized role"}, status=403)
+
+        # Update DB
+        widget_collection.update_one({"widget_id": widget_id}, {"$set": updated_fields})
+
+        # Prepare response
         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
         direct_chat_link = f"{base_domain}/direct-chat/{widget_id}"
-        
+
         return JsonResponse({
             "widget_id": widget_id,
-            "widget_type": widget_type,
-            "name": name,
-            "color": color,
-            "language": language,
-            "is_active": is_active,
-            "updated_at": updated_widget["updated_at"].isoformat(), 
+            "widget_type": updated_fields.get("widget_type", widget.get("widget_type")),
+            "name": updated_fields.get("name", widget.get("name")),
+            "is_active": updated_fields.get("is_active", widget.get("is_active")),
+            "settings": updated_fields.get("settings", widget.get("settings")),
+            "updated_at": updated_fields["updated_at"].isoformat(),
             "direct_chat_link": direct_chat_link,
             "widget_code": generate_widget_code(widget_id, request),
         }, status=200)
-    
+
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
+
+
 @csrf_exempt
+@jwt_required
+@superadmin_required
 @require_http_methods(["DELETE"])
 def delete_widget(request, widget_id):
     try:
@@ -165,35 +209,54 @@ def delete_widget(request, widget_id):
 
 @csrf_exempt
 @require_POST
+@jwt_required
+@superadmin_required
 def create_widget(request):
     try:
         data = json.loads(request.body)
         widget_type = data.get("widget_type")
         name = data.get("name")
-        color = data.get("color")
-        language = data.get("language", "en")
         is_active = data.get("is_active", False)
 
-        if not all([widget_type, name, color]):
-            return JsonResponse({"error": "Missing required fields"}, status=400)
-        widget_id = generate_widget_id()
+        settings = data.get("settings", {})
+        position = settings.get("position", "right")
+        primary_color = settings.get("primaryColor", "#10B981")
+        welcome_message = settings.get("welcomeMessage", "Hello! How can we help you?")
+        offline_message = settings.get("offlineMessage", "We're currently offline.")
+        sound_enabled = settings.get("soundEnabled", True)
 
-        # Check for uniqueness
+        if not all([widget_type, name]):
+            return JsonResponse({"error": "Missing required fields"}, status=400)
+
         widget_collection = get_widget_collection()
+
+        # ✅ Check for duplicate widget_type + name
+        if widget_collection.find_one({"widget_type": widget_type, "name": name}):
+            return JsonResponse(
+                {"error": "A widget with this type and name already exists."},
+                status=400
+            )
+            
+        # Generate a unique widget_id
         while widget_collection.find_one({"widget_id": widget_id}):
             widget_id = generate_widget_id()
-        # Create a new widget
+
         widget = {
             "widget_id": widget_id,
             "widget_type": widget_type,
             "name": name,
-            "color": color,
-            "language": language,
             "is_active": is_active,
+            "settings": {
+                "position": position,
+                "primaryColor": primary_color,
+                "welcomeMessage": welcome_message,
+                "offlineMessage": offline_message,
+                "soundEnabled": sound_enabled,
+            }
         }
+
         insert_with_timestamps(widget_collection, widget)
 
-        # Generate the direct chat link (only widget_id)
         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
         direct_chat_link = f"{base_domain}/direct-chat/{widget['widget_id']}"
 
@@ -201,15 +264,15 @@ def create_widget(request):
             "widget_id": widget["widget_id"],
             "widget_type": widget["widget_type"],
             "name": widget["name"],
-            "color": widget["color"],
-            "language": widget["language"],
             "is_active": widget["is_active"],
+            "settings": widget["settings"],
             "direct_chat_link": direct_chat_link,
-            "widget_code": generate_widget_code(widget["widget_id"],request),
+            "widget_code": generate_widget_code(widget["widget_id"], request),
         }, status=201)
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
 
 # Helper function to generate widget code
 def generate_widget_code(widget_id,request):
