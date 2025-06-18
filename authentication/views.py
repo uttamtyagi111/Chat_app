@@ -62,6 +62,8 @@ def login(request):
         'email': user['email'],
         'role': user['role']
     }
+    if user['role'] == 'agent':
+        payload['assigned_widgets'] = user.get('assigned_widgets', [])
 
     access_token = generate_access_token(payload)
     refresh_token = generate_refresh_token(payload)
@@ -92,7 +94,8 @@ def refresh_token_view(request):
     new_access = generate_access_token({
         'admin_id': payload['admin_id'],
         'email': payload['email'],
-        'role': payload['role']
+        'role': payload['role'],
+        'assigned_widgets': payload['assigned_widgets', []]
     })
 
     return JsonResponse({'access': new_access})

@@ -1,3 +1,6 @@
+import traceback
+from venv import logger
+from django.http import JsonResponse
 from pymongo.errors import DuplicateKeyError
 from utils.random_id import generate_contact_id  # Import the contact ID generator
 from wish_bot.db import  get_admin_collection, get_contact_collection # Import the contacts collection
@@ -9,20 +12,20 @@ from django.utils.dateparse import parse_datetime
 from django.core.serializers.json import DjangoJSONEncoder
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from authentication.utils import decode_token
+from rest_framework.authentication import get_authorization_header
 from wish_bot.db import get_room_collection,get_chat_collection 
-from wish_bot.db import get_agent_collection, get_mongo_client
+from wish_bot.db import  get_mongo_client
 from authentication.utils import (
-    hash_password,jwt_required, validate_email_format,jwt_required)
+    hash_password,jwt_required, validate_email_format,superadmin_required)
 from drf_spectacular.utils import extend_schema,OpenApiResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from pymongo import DESCENDING
+from pymongo import ASCENDING, DESCENDING
 from collections import defaultdict
-from django.shortcuts import render
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view
+from  authentication.permissions import IsAdminOrSuperAdmin, IsSuperAdmin
 
 # Optional helper to get conversations collection
 def get_conversations_collection():
@@ -31,20 +34,41 @@ def get_conversations_collection():
     return db['conversations']
 
 
+
+
+@jwt_required# ✅ ensure user is authenticated
+@superadmin_required
 def agent_list(request):
-    agents_collection = get_agent_collection()
-    agents = list(agents_collection.find())
-    return render(request, 'dashboard/agent_list.html', {'agents': agents})
+    try:
+        agents_collection = get_admin_collection()
+        organization = request.GET.get('organization')  # Get query param
+
+        query = {'role': 'agent'}
+        if organization:
+            query['organization'] = organization
+
+        # Fetch only users with role 'agent'
+        agents = list(agents_collection.find(query, {
+            '_id': 0,  # exclude MongoDB internal ID
+            'admin_id': 1,
+            'name': 1,
+            'email': 1,
+            'role': 1,
+            'organization': 1,
+            'assigned_widgets': 1,
+            'created_at': 1
+        }))
+
+        return JsonResponse({'agents': agents, 'total': len(agents)}, status=200)
+
+    except Exception as e:
+        return JsonResponse({'error': f'Failed to fetch agents: {str(e)}'}, status=500)
 
 
+from authentication.jwt_auth import JWTAuthentication
 class AddAgentView(APIView):
-    authentication_classes = []  # We are using custom auth
-    permission_classes = []      # No DRF permission checks
-
-    @method_decorator(csrf_exempt)
-    @method_decorator(jwt_required)
-    def dispatch(self, *args, **kwargs):
-        return super().dispatch(*args, **kwargs)
+    authentication_classes = [JWTAuthentication]    # We are using custom auth
+    permission_classes = [IsSuperAdmin]      # Only superadmin can add agents
 
     @extend_schema(
         request={
@@ -53,7 +77,12 @@ class AddAgentView(APIView):
                 'properties': {
                     'name': {'type': 'string', 'example': 'John Doe'},
                     'email': {'type': 'string', 'format': 'email', 'example': 'john@example.com'},
-                    'password': {'type': 'string', 'example': 'StrongPass@123'}
+                    'password': {'type': 'string', 'example': 'StrongPass@123'},
+                    'assigned_widgets': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'example': ['widget_123', 'widget_456']
+                    }
                 },
                 'required': ['name', 'email', 'password']
             }
@@ -67,9 +96,9 @@ class AddAgentView(APIView):
         description="Only superadmin can add an agent. Requires name, email, password."
     )
     def post(self, request):
-        user = getattr(request, 'jwt_user', None)
-        if not user or user.get('role') != 'superadmin':
-            return Response({'error': 'Unauthorized'}, status=403)
+        # user = getattr(request, 'jwt_user', None)
+        # if not user or user.get('role') != 'superadmin':
+        #     return Response({'error': 'Unauthorized'}, status=403)
 
         try:
             data = request.data if hasattr(request, 'data') else json.loads(request.body)
@@ -79,6 +108,11 @@ class AddAgentView(APIView):
         name = data.get('name', '').strip()
         email = data.get('email', '').lower().strip()
         password = data.get('password', '').strip()
+        assigned_widgets = data.get('assigned_widgets', [])
+        organization = data.get('organization', None)
+        if not isinstance(assigned_widgets, list):
+            return Response({"message": "assigned_widgets must be a list"}, status=400)
+
 
         if not name or not email or not password:
             return Response({"message": "Name, Email and Password are required"}, status=400)
@@ -99,6 +133,8 @@ class AddAgentView(APIView):
             'role': 'agent',
             'admin_id': str(uuid.uuid4()),
             'password': hash_password(password),
+            'assigned_widgets': assigned_widgets,
+            'organization': organization,
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow(),
             'is_online': False,
@@ -115,79 +151,105 @@ class AddAgentView(APIView):
             return Response({"message": f"Error creating agent: {str(e)}"}, status=500)
 
 
-
 class EditAgentAPIView(APIView):
-    # @jwt_required
+    authentication_classes = [JWTAuthentication]
+    permission_classes = []
+
     @extend_schema(
         request={
             'application/json': {
                 'type': 'object',
                 'properties': {
-                    'name': {'type': 'string', 'example': 'Jane Smith'},
-                    'email': {'type': 'string', 'format': 'email', 'example': 'jane@example.com'}
-                },
-                'required': ['name', 'email']
+                    'name': {'type': 'string', 'example': 'Jane Doe'},
+                    'email': {'type': 'string', 'example': 'jane@example.com'},
+                    'assigned_widgets': {
+                        'type': 'array',
+                        'items': {'type': 'string'},
+                        'example': ['widget1', 'widget2']
+                    },
+                    'organization': {'type': 'string', 'example': 'Acme Inc.'}
+                }
             }
         },
         responses={
             200: OpenApiResponse(response={'message': 'Agent updated successfully.'}),
-            400: OpenApiResponse(description='Duplicate or missing fields'),
-            # 403: OpenApiResponse(description='Unauthorized access'),
+            400: OpenApiResponse(description='Invalid input'),
+            403: OpenApiResponse(description='Permission denied'),
             404: OpenApiResponse(description='Agent not found'),
-            500: OpenApiResponse(description='Unexpected server error')
+            500: OpenApiResponse(description='Server error')
         },
-        description="✏️ Update agent name and email. Requires superadmin role."
+        description="PATCH: Agent can edit name & email. Superadmin can also update assigned_widgets and organization."
     )
-    def put(self, request, agent_id):
-        # user = request.user
-        # if user.get('role') != 'superadmin':
-        #     return Response({"error": "Unauthorized"}, status=403)
+    def patch(self, request, agent_id):
+        user = request.user
+        role = user.get("role")
+        token_admin_id = user.get("admin_id")
 
-        agents_collection = get_agent_collection()
-        name = request.data.get('name')
-        email = request.data.get('email', '').lower()
-
-        if not name or not email:
-            return Response({'detail': 'Name and Email are required'}, status=400)
-
-        if not validate_email_format(email):
-            return Response({"message": "Invalid email format"}, status=400)
+        agents_collection = get_admin_collection()
 
         try:
-            agent = agents_collection.find_one({'agent_id': agent_id})
+            agent = agents_collection.find_one({'admin_id': agent_id})
             if not agent:
                 return Response({'detail': 'Agent not found'}, status=404)
 
-            duplicate_agent = agents_collection.find_one({
-                'agent_id': {'$ne': agent_id},
-                '$or': [{'name': name}, {'email': email}]
-            })
-            if duplicate_agent:
-                return Response({'detail': 'Another agent with this name or email already exists.'}, status=400)
+            if role == "agent" and agent_id != token_admin_id:
+                return Response({'detail': 'You can only edit your own profile'}, status=403)
 
-            result = agents_collection.update_one(
-                {'agent_id': agent_id},
-                {'$set': {'name': name, 'email': email , 'updated_at': datetime.now() }}
-            )
+            update_fields = {}
+            name = request.data.get('name')
+            email = request.data.get('email')
+            assigned_widgets = request.data.get('assigned_widgets')
+            organization = request.data.get('organization')
+
+            # ✅ Common updates (for agent and superadmin)
+            if name:
+                update_fields['name'] = name
+
+            if email:
+                email = email.lower().strip()
+                if not validate_email_format(email):
+                    return Response({"message": "Invalid email format"}, status=400)
+
+                duplicate = agents_collection.find_one({
+                    'admin_id': {'$ne': agent_id},
+                    'email': email
+                })
+                if duplicate:
+                    return Response({'detail': 'Another agent with this email already exists.'}, status=400)
+
+                update_fields['email'] = email
+
+            # ✅ Superadmin-only updates
+            if assigned_widgets is not None or organization is not None:
+                if role != "superadmin":
+                    return Response({'detail': 'Only superadmin can update widgets or organization'}, status=403)
+
+                if assigned_widgets is not None:
+                    update_fields['assigned_widgets'] = assigned_widgets
+
+                if organization is not None:
+                    update_fields['organization'] = organization
+
+            if not update_fields:
+                return Response({'message': 'No valid fields to update'}, status=400)
+
+            update_fields['updated_at'] = datetime.utcnow()
+            result = agents_collection.update_one({'admin_id': agent_id}, {'$set': update_fields},{'updated_at': datetime.utcnow()})
 
             if result.modified_count == 0:
-                return Response({'message': 'No changes were made.'}, status=200)
+                return Response({'message': 'No changes made.'}, status=200)
 
             return Response({'message': 'Agent updated successfully.'}, status=200)
+
         except PyMongoError as e:
-            return Response({'detail': f"Database error: {str(e)}"}, status=500)
+            return Response({'detail': f'Database error: {str(e)}'}, status=500)
         except Exception as e:
-            return Response({'detail': f"Unexpected error: {str(e)}"}, status=500)
+            return Response({'detail': f'Unexpected error: {str(e)}'}, status=500)
 
 
 class DeleteAgentAPIView(APIView):
-    authentication_classes = []  # We are using custom auth
-    permission_classes = []      # No DRF permission checks
-
-    @method_decorator(csrf_exempt)
-    @method_decorator(jwt_required)
-    def dispatch(self, *args, **kwargs):
-        return super().dispatch(*args, **kwargs)
+    authentication_classes = [JWTAuthentication]  # We are using custom auth
+    permission_classes = [IsSuperAdmin]      # No DRF permission checks
 
     @extend_schema(
         responses={
@@ -199,38 +261,28 @@ class DeleteAgentAPIView(APIView):
         description="🗑️ Delete an agent by `agent_id`. Superadmin access only."
     )
     def delete(self, request, agent_id):
-        user = getattr(request, 'jwt_user', None)
-        if not user or user.get('role') != 'superadmin':
-            return Response({'error': 'Unauthorized'}, status=403)
-
         try:
-            agents_collection = get_agent_collection()
-            agent = agents_collection.find_one({'agent_id': agent_id})
+            agents_collection = get_admin_collection()
+            agent = agents_collection.find_one({'admin_id': agent_id})
             if not agent:
                 return Response({'detail': 'Agent not found.'}, status=404)
 
-            agents_collection.delete_one({'agent_id': agent_id})
-            return Response({'message': 'Agent deleted successfully.'}, status=204)
+            agents_collection.delete_one({'admin_id': agent_id})
+            logger.info(f"🗑️ Agent {agent_id} deleted successfully by {request.user.get('email', 'unknown user')}"      )
+            return Response({'message': f"Agent {agent_id} deleted successfully by {request.user.get('email')}"}, status=200)
         except PyMongoError as e:
             return Response({'detail': f"Database error: {str(e)}"}, status=500)
         except Exception as e:
             return Response({'detail': f"Unexpected error: {str(e)}"}, status=500)
 
 
-import traceback
-
-
 class AgentDetailAPIView(APIView):
-    authentication_classes = []
-    permission_classes = []
+    authentication_classes = [JWTAuthentication]
+    permission_classes = []  # We'll handle role logic manually here
 
-    @method_decorator(csrf_exempt)
-    @method_decorator(jwt_required)
-    def dispatch(self, *args, **kwargs):
-        return super().dispatch(*args, **kwargs)
     @extend_schema(
-        summary="Get agent details by agent_id",
-        description="Returns detailed info of a specific agent. Only accessible by superadmin.",
+        summary="Get agent details",
+        description="Returns detailed info of a specific agent. Superadmin can view anyone. Agents can view their own profile.",
         responses={
             200: OpenApiResponse(response={
                 'type': 'object',
@@ -243,23 +295,56 @@ class AgentDetailAPIView(APIView):
             500: OpenApiResponse(description="Internal server error")
         }
     )
-    def get(self,  agent_id):
-        # user = getattr(request, 'jwt_user', None)
-        # if not user or user.get('role') != 'superadmin':
-        #     return Response({'error': 'Unauthorized'}, status=403)
-
+    def get(self, request, agent_id=None):
         try:
+            user = request.user
+            print("🔐 JWT User Payload:", user)
+
+            role = user.get("role")
+            print("👤 Role:", role)
+            print("🔎 agent_id from URL:", agent_id)
+
+            if role == "superadmin":
+                print("✅ Superadmin access granted")
+
+            elif role == "agent":
+                token_admin_id = user.get("admin_id")
+                print("🆔 admin_id from token:", token_admin_id)
+
+                # Fallback if agent_id is not passed
+                if not agent_id:
+                    print("ℹ️ No agent_id passed, using token admin_id")
+                    agent_id = token_admin_id
+
+                elif agent_id != token_admin_id:
+                    print("❌ agent_id mismatch! Token:", token_admin_id, "URL param:", agent_id)
+                    return Response({'error': 'Forbidden'}, status=403)
+
+                print("✅ Agent access granted to their own data")
+
+            else:
+                print("❌ Unauthorized role:", role)
+                return Response({'error': 'Unauthorized'}, status=403)
+
+            # ✅ Fetch agent from DB
             agents_collection = get_admin_collection()
+            print("📦 Fetching from DB: admin_id =", agent_id)
+
             agent = agents_collection.find_one({'admin_id': agent_id, 'role': 'agent'})
             if not agent:
+                print("❌ Agent not found in DB")
                 return Response({'error': 'Agent not found'}, status=404)
 
+            print("✅ Agent found:", agent.get("name", "No Name"))
             agent['_id'] = str(agent['_id'])
             return Response({'agent': agent}, status=200)
 
         except Exception as e:
+            print("🔥 Exception in AgentDetailAPIView:", str(e))
             traceback.print_exc()
             return Response({'error': f"Internal error: {str(e)}"}, status=500)
+
+
 
 
 
@@ -344,7 +429,7 @@ class AssignAgentToRoom(APIView):
     def post(self, request):
         try:
             room_id = request.data.get("room_id")
-            agent_name = request.data.get("agent_name")
+            agent_name = request.data.get("name")
 
             if not room_id or not agent_name:
                 return Response(
@@ -381,9 +466,16 @@ class AssignAgentToRoom(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-from django.http import JsonResponse
+
+
+
+@jwt_required
 def conversation_list(request):
     try:
+        user = request.user
+        role = user.get('role')
+        assigned_widgets = user.get('assigned_widgets', [])
+
         collection = get_chat_collection()
 
         pipeline = [
@@ -396,29 +488,34 @@ def conversation_list(request):
                     "total_messages": {"$sum": 1},
                 }
             },
-            # Join with rooms collection
             {
                 "$lookup": {
-                    "from": "rooms",  # Replace with your actual rooms collection name
+                    "from": "rooms",
                     "localField": "_id",
                     "foreignField": "room_id",
                     "as": "room"
                 }
             },
             {"$unwind": {"path": "$room", "preserveNullAndEmptyArrays": True}},
-            
-            # Join with widgets collection
+        ]
+
+        if role == 'agent':
+            pipeline.append({
+                "$match": {
+                    "room.widget_id": {"$in": assigned_widgets}
+                }
+            })
+
+        pipeline += [
             {
                 "$lookup": {
-                    "from": "widgets",  # Replace with your actual widgets collection name
+                    "from": "widgets",
                     "localField": "room.widget_id",
                     "foreignField": "widget_id",
                     "as": "widget"
                 }
             },
             {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
-            
-            # Project final shape
             {
                 "$project": {
                     "room_id": "$_id",
@@ -428,7 +525,6 @@ def conversation_list(request):
                     "widget": {
                         "widget_id": "$widget.widget_id",
                         "name": "$widget.name",
-                        # "domain": "$widget.domain",
                         "is_active": "$widget.is_active",
                         "created_at": "$widget.created_at"
                     }
@@ -439,23 +535,18 @@ def conversation_list(request):
 
         conversations = list(collection.aggregate(pipeline))
 
-        # Format timestamps
         for convo in conversations:
             if isinstance(convo.get('last_timestamp'), datetime):
                 convo['last_timestamp'] = convo['last_timestamp'].isoformat()
-            
-            # Handle case where widget might be None
             if not convo.get('widget'):
                 convo['widget'] = {
                     'widget_id': '',
                     'name': 'No Widget',
-                    # 'domain': '',
                     'is_active': False,
                     'created_at': ''
                 }
-            if convo.get('widget') and convo['widget'].get('created_at'):
-                            if isinstance(convo['widget']['created_at'], datetime):
-                                convo['widget']['created_at'] = convo['widget']['created_at'].isoformat()
+            elif isinstance(convo['widget'].get('created_at'), datetime):
+                convo['widget']['created_at'] = convo['widget']['created_at'].isoformat()
 
         return JsonResponse({
             "conversations": conversations,
@@ -469,16 +560,53 @@ def conversation_list(request):
             "total_count": 0
         }, status=500)
 
-from django.http import JsonResponse
 
+
+
+@jwt_required
 def chat_room_view(request, room_id):
     try:
-        collection = get_chat_collection()
-        messages = list(collection.find({'room_id': room_id}).sort('timestamp', 1))
+        user = request.jwt_user
+        role = user.get("role")
+        admin_id = user.get("admin_id")
+
+        chat_collection = get_chat_collection()
+        rooms_collection = get_room_collection()
+        # widgets_collection = get_widget_collection()
+        agents_collection = get_admin_collection()
+
+        # Fetch the room to get widget_id
+        room = rooms_collection.find_one({"room_id": room_id})
+        if not room:
+            return JsonResponse({
+                'success': False,
+                'error': 'Room not found',
+                'messages': [],
+                'room_id': room_id
+            }, status=404)
+
+        widget_id = room.get("widget_id")
+
+        # Agent access check
+        if role == "agent":
+            agent = agents_collection.find_one({"admin_id": admin_id})
+            assigned_widgets = agent.get("assigned_widgets", []) if agent else []
+
+            if widget_id not in assigned_widgets:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Access denied. You are not allowed to access this room.',
+                    'messages': [],
+                    'room_id': room_id
+                }, status=403)
+
+        # Fetch messages for the room
+        messages = list(chat_collection.find({'room_id': room_id}).sort('timestamp', ASCENDING))
 
         for msg in messages:
             msg['_id'] = str(msg['_id'])
-            msg['timestamp'] = msg['timestamp'].isoformat()
+            if isinstance(msg['timestamp'], datetime):
+                msg['timestamp'] = msg['timestamp'].isoformat()
 
         return JsonResponse({
             'success': True,
@@ -495,11 +623,18 @@ def chat_room_view(request, room_id):
         }, status=500)
 
 
+@jwt_required
 def widget_conversations(request, widget_id):
-    """Get all conversations for a specific widget"""
     try:
+        user = request.user
+        role = user.get('role')
+        assigned_widgets = user.get('assigned_widgets', [])
+
+        if role == 'agent' and widget_id not in assigned_widgets:
+            return JsonResponse({"error": "Access denied for this widget"}, status=403)
+
         collection = get_chat_collection()
-        
+
         pipeline = [
             {"$sort": {"timestamp": DESCENDING}},
             {
@@ -510,7 +645,6 @@ def widget_conversations(request, widget_id):
                     "total_messages": {"$sum": 1},
                 }
             },
-            # Join with rooms collection
             {
                 "$lookup": {
                     "from": "rooms",
@@ -520,15 +654,7 @@ def widget_conversations(request, widget_id):
                 }
             },
             {"$unwind": {"path": "$room", "preserveNullAndEmptyArrays": True}},
-            
-            # Filter by widget_id at room level
-            {
-                "$match": {
-                    "room.widget_id": widget_id
-                }
-            },
-            
-            # Join with widgets collection
+            {"$match": {"room.widget_id": widget_id}},
             {
                 "$lookup": {
                     "from": "widgets",
@@ -538,8 +664,6 @@ def widget_conversations(request, widget_id):
                 }
             },
             {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
-            
-            # Project final shape
             {
                 "$project": {
                     "room_id": "$_id",
@@ -559,11 +683,9 @@ def widget_conversations(request, widget_id):
 
         conversations = list(collection.aggregate(pipeline))
 
-        # Format timestamps
         for convo in conversations:
             if isinstance(convo.get('last_timestamp'), datetime):
                 convo['last_timestamp'] = convo['last_timestamp'].isoformat()
-            
             if not convo.get('widget'):
                 convo['widget'] = {
                     'widget_id': '',
@@ -571,9 +693,8 @@ def widget_conversations(request, widget_id):
                     'is_active': False,
                     'created_at': ''
                 }
-            if convo.get('widget') and convo['widget'].get('created_at'):
-                if isinstance(convo['widget']['created_at'], datetime):
-                    convo['widget']['created_at'] = convo['widget']['created_at'].isoformat()
+            elif isinstance(convo['widget'].get('created_at'), datetime):
+                convo['widget']['created_at'] = convo['widget']['created_at'].isoformat()
 
         return JsonResponse({
             "conversations": conversations,
@@ -589,19 +710,38 @@ def widget_conversations(request, widget_id):
         }, status=500)
 
 
-# URL pattern would be something like:
-# path('conversations/widget/<str:widget_id>/', widget_conversations, name='widget_conversations')
+
 class ContactListCreateView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def get_user_from_request(self, request):
+        auth = get_authorization_header(request).decode('utf-8')
+        if auth.startswith('Bearer '):
+            token = auth.split(' ')[1]
+            return decode_token(token)  # Should return a user dict
+        return None
+
+    # @jwt_required
     def get(self, request):
-        agent_id = request.query_params.get('agent_id')
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+        role = user.get("role")
+        token_admin_id = user.get("admin_id")
+
+        widget_id = request.query_params.get('widget_id')
         contact_id = request.query_params.get('contact_id')
         search = request.query_params.get('search')
+        agent_id = request.query_params.get('agent_id') if role == 'superadmin' else token_admin_id
 
         query = {}
-        if agent_id:
-            query['agent_id'] = agent_id
+
+        # Filter only if specific fields are passed
         if contact_id:
             query['contact_id'] = contact_id
+
         if search:
             query['$or'] = [
                 {'name': {'$regex': search, '$options': 'i'}},
@@ -610,29 +750,71 @@ class ContactListCreateView(APIView):
                 {'secondary_email': {'$regex': search, '$options': 'i'}},
             ]
 
+        if role == 'agent':
+            # Agent: filter by their ID and assigned widgets
+            agent = get_admin_collection().find_one({'admin_id': token_admin_id})
+            allowed_widgets = agent.get('assigned_widgets', [])
+            # query['agent_id'] = token_admin_id
+            if widget_id:
+                if widget_id not in allowed_widgets:
+                    return Response({'error': 'Access denied to this widget'}, status=403)
+                query['widget_id'] = widget_id
+            else:
+                query['widget_id'] = {'$in': allowed_widgets}
+
+        elif role == 'superadmin':
+            # Superadmin: optionally filter by agent_id or widget_id
+            if agent_id:
+                query['agent_id'] = agent_id
+            if widget_id:
+                query['widget_id'] = widget_id
+
+        # Fetch contacts
         contacts = list(get_contact_collection().find(query))
         for c in contacts:
             c['_id'] = str(c['_id'])
+
         return Response(contacts)
 
+
+    # @jwt_required
     def post(self, request):
-        data = request.data
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+        # Ensure user is authenticated and has a role
         
-        required_fields = ['name', 'email']
+        role = user.get("role")
+        token_admin_id = user.get("admin_id")
+
+        data = request.data
+        required_fields = ['name', 'email', 'widget_id']
 
         for field in required_fields:
             if not data.get(field):
                 return Response({'error': f'{field} is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Add required and optional fields
+        widget_id = data.get('widget_id')
+        agent_id = data.get('agent_id') or token_admin_id  # fallback to logged-in user for agent
+
+        # Agent role restrictions
+        if role == 'agent':
+            if agent_id != token_admin_id:
+                return Response({'error': 'Agents can only create contacts for themselves.'}, status=403)
+            agent = get_admin_collection().find_one({'admin_id': token_admin_id})
+            allowed_widgets = agent.get('assigned_widgets', [])
+            if widget_id not in allowed_widgets:
+                return Response({'error': 'Access denied to this widget'}, status=403)
+
         contact = {
-            'contact_id': generate_contact_id(),  # Generate a unique contact ID
+            'contact_id': generate_contact_id(),
             'name': data.get('name'),
             'email': data.get('email'),
             'phone': data.get('phone', ''),
             'secondary_email': data.get('secondary_email', ''),
             'address': data.get('address', ''),
-            'agent_id': data.get('agent_id', ''),
+            'agent_id': agent_id,
+            'widget_id': widget_id,
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
         }
@@ -650,23 +832,52 @@ class ContactListCreateView(APIView):
 
 
 class ContactRetrieveUpdateDeleteView(APIView):
+    def get_user_from_request(self, request):
+        auth = get_authorization_header(request).decode('utf-8')
+        if auth.startswith('Bearer '):
+            token = auth.split(' ')[1]
+            return decode_token(token)
+        return None
+
+    def is_agent_authorized_for_widget(self, user, contact):
+        agent_id = user.get('admin_id')
+        agent = get_admin_collection().find_one({'admin_id': agent_id})
+        assigned_widgets = agent.get('assigned_widgets', [])
+        return contact.get('widget_id') in assigned_widgets
+
     def get_object(self, contact_id):
         try:
             return get_contact_collection().find_one({'contact_id': contact_id})
         except Exception:
             return None
 
+
     def get(self, request, pk):
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+
         contact = self.get_object(pk)
         if not contact:
             return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
-        contact['_id'] = str(contact['_id'])  # Convert ObjectId to string for JSON response
+
+        if user.get("role") == 'agent' and not self.is_agent_authorized_for_widget(user, contact):
+            return Response({'error': 'Permission denied: Not assigned to this widget'}, status=403)
+
+        contact['_id'] = str(contact['_id'])
         return Response(contact)
 
     def put(self, request, pk):
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+
         contact = self.get_object(pk)
         if not contact:
             return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.get("role") == 'agent' and not self.is_agent_authorized_for_widget(user, contact):
+            return Response({'error': 'Permission denied: Not assigned to this widget'}, status=403)
 
         updated_data = request.data
         updated_data['updated_at'] = datetime.utcnow()
@@ -677,9 +888,16 @@ class ContactRetrieveUpdateDeleteView(APIView):
         return Response(contact)
 
     def delete(self, request, pk):
+        user = self.get_user_from_request(request)
+        if not user:
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+
         contact = self.get_object(pk)
         if not contact:
             return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if user.get("role") == 'agent' and not self.is_agent_authorized_for_widget(user, contact):
+            return Response({'error': 'Permission denied: Not assigned to this widget'}, status=403)
 
         get_contact_collection().delete_one({'contact_id': pk})
         return Response({'message': 'Deleted'}, status=status.HTTP_204_NO_CONTENT)
@@ -767,6 +985,9 @@ def user_feedback(request):
         "success": True,
         "message": "Feedback submitted successfully",
         "user_feedback": {
+            "result": result.modified_count > 0,
+            "room_id": room_id,
+            "created_at": datetime.utcnow().isoformat(),
             "rating": rating,
             "comment": comment
         }
@@ -808,6 +1029,12 @@ class AgentFeedbackList(APIView):
 
 
 class AgentAnalytics(APIView):
+    permission_classes = [IsSuperAdmin]
+    authentication_classes = [JWTAuthentication]# No DRF permission checks
+    """
+    Get analytics for a specific agent, including chat history, response times, and feedback.
+    Supports optional filters for date range, preview messages, grouping by day/week, and rating.
+    """
     def get(self, request, agent_name):
         chat_rooms = get_room_collection()
         messages = get_chat_collection()
@@ -946,8 +1173,10 @@ class AgentAnalytics(APIView):
             "chat_history": chat_history,
         }, status=200)
 
-
 class ExportChatHistoryAPIView(APIView):
+    permission_classes = [IsSuperAdmin]  # Only admins or superadmins can access this view
+    authentication_classes = [JWTAuthentication]  # Custom auth, no DRF auth needed
+    
     """
     Export chat history for a room (and optional date range) as CSV or JSON.
     Query params:

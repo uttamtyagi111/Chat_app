@@ -4,8 +4,12 @@ from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 import secrets
 import string
+import logging
+
 import hashlib, jwt, datetime
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 def hash_password(password):
     # Use a secure password hashing algorithm in real app
@@ -32,7 +36,7 @@ def hash_token(token):
 def generate_access_token(payload):
     payload.update({
         'type': 'access',
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=15)
+        'exp': datetime.datetime.utcnow() + datetime.timedelta(days=1)
     })
     return jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
 
@@ -58,13 +62,41 @@ def jwt_required(view_func):
     def _wrapped_view(request, *args, **kwargs):
         auth = request.META.get('HTTP_AUTHORIZATION', '')
         if not auth.startswith('Bearer '):
+            logger.info("Missing or malformed Authorization header")
             return JsonResponse({"error": "Authorization header missing"}, status=401)
 
         token = auth.split(' ')[1]
         payload = decode_token(token)
         if not payload:
+            logger.info("Token decoding failed or token invalid")
             return JsonResponse({"error": "Invalid or expired token"}, status=401)
 
-        request.jwt_user = payload  # ✅ Use a separate name
+        request.jwt_user = payload
+        request.user = payload # ✅ Use a separate name
         return view_func(request, *args, **kwargs)
     return _wrapped_view
+
+
+
+def role_required(roles):
+    def decorator(view_func):
+        @wraps(view_func)
+        def _wrapped_view(request, *args, **kwargs):
+            user = getattr(request, 'jwt_user', None)
+            if not user:
+                logger.warning("Unauthorized access attempt: No JWT user found")
+                return JsonResponse({"error": "Unauthorized"}, status=401)
+
+            role = user.get('role')
+            if role not in roles:
+                logger.warning(f"Access denied for user with role '{role}'. Required: {roles}")
+                return JsonResponse({"error": f"Access denied. Required role: {roles}"}, status=403)
+
+            return view_func(request, *args, **kwargs)
+        return _wrapped_view
+    return decorator
+
+# Shortcuts
+admin_required = role_required(['agent'])
+superadmin_required = role_required(['superadmin'])
+admin_or_superadmin_required = role_required(['admin', 'superadmin'])
