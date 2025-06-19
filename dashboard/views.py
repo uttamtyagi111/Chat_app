@@ -1,3 +1,4 @@
+from ast import Is
 import traceback
 from venv import logger
 from django.http import JsonResponse
@@ -25,7 +26,7 @@ from rest_framework import status
 from pymongo import ASCENDING, DESCENDING
 from collections import defaultdict
 from rest_framework.decorators import api_view
-from  authentication.permissions import IsAdminOrSuperAdmin, IsSuperAdmin
+from  authentication.permissions import  IsSuperAdmin,IsAgentOrSuperAdmin
 
 # Optional helper to get conversations collection
 def get_conversations_collection():
@@ -344,12 +345,13 @@ class AgentDetailAPIView(APIView):
             traceback.print_exc()
             return Response({'error': f"Internal error: {str(e)}"}, status=500)
 
-
-
-
-
+import logging
+logger = logging.getLogger(__name__)
 
 class AssignAgentToRoom(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAgentOrSuperAdmin]
+
     @extend_schema(
         operation_id="assignAgentToRoom",
         summary="Assign an agent to an existing chat room by room_id",
@@ -358,93 +360,71 @@ class AssignAgentToRoom(APIView):
                 "type": "object",
                 "properties": {
                     "room_id": {"type": "string", "description": "Chat room ID"},
-                    "agent_name": {"type": "string", "description": "Name of the agent to assign"},
+                    "agent_id": {"type": "string", "description": "ID of the agent to assign"},
                 },
-                "required": ["room_id", "agent_name"],
+                "required": ["room_id", "agent_id"],
                 "example": {
                     "room_id": "room123",
-                    "agent_name": "John Doe"
+                    "agent_id": "admin_123456"
                 }
             }
         },
         responses={
-            200: {
-                "description": "Agent assigned successfully",
-                "content": {
-                    "application/json": {
-                        "type": "object",
-                        "properties": {
-                            "message": {"type": "string"}
-                        },
-                        "example": {
-                            "message": "Agent 'John Doe' assigned to room 'room123'"
-                        }
-                    }
-                }
-            },
-            400: {
-                "description": "Bad Request: Missing room_id or agent_name",
-                "content": {
-                    "application/json": {
-                        "type": "object",
-                        "properties": {
-                            "error": {"type": "string"}
-                        },
-                        "example": {
-                            "error": "room_id and agent_name are required"
-                        }
-                    }
-                }
-            },
-            404: {
-                "description": "Chat room not found",
-                "content": {
-                    "application/json": {
-                        "type": "object",
-                        "properties": {
-                            "error": {"type": "string"}
-                        },
-                        "example": {
-                            "error": "Chat room not found"
-                        }
-                    }
-                }
-            },
-            500: {
-                "description": "Internal Server Error",
-                "content": {
-                    "application/json": {
-                        "type": "object",
-                        "properties": {
-                            "error": {"type": "string"}
-                        },
-                        "example": {
-                            "error": "Unexpected server error"
-                        }
-                    }
-                }
-            }
+            200: {"description": "Agent assigned successfully"},
+            400: {"description": "Bad Request"},
+            403: {"description": "Forbidden"},
+            404: {"description": "Room not found"},
+            500: {"description": "Internal Server Error"},
         }
     )
     def post(self, request):
         try:
+            user = request.user
+            role = user.get("role")
             room_id = request.data.get("room_id")
-            agent_name = request.data.get("name")
+            agent_id = request.data.get("agent_id")
 
-            if not room_id or not agent_name:
+            if not room_id or not agent_id:
                 return Response(
-                    {"error": "room_id and agent_name are required"},
+                    {"error": "room_id and agent_id are required"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
             room_collection = get_room_collection()
-
             room = room_collection.find_one({"room_id": room_id})
             if not room:
                 return Response(
-                    {"error": "Chat room not found"}, status=status.HTTP_404_NOT_FOUND
+                    {"error": "Chat room not found"},
+                    status=status.HTTP_404_NOT_FOUND
                 )
 
+            # Fetch agent info
+            agent_doc = get_admin_collection().find_one({"admin_id": agent_id})
+            if not agent_doc:
+                return Response(
+                    {"error": "Agent not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            agent_name = agent_doc.get("name", "Unknown Agent")
+
+            # ✅ Agent-specific checks
+            if role == "agent":
+                requester_id = user.get("admin_id")
+                if agent_id != requester_id:
+                    return Response(
+                        {"error": "Agents can only assign themselves to rooms"},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+
+                assigned_widgets = get_admin_collection().find_one({"admin_id": requester_id}).get("assigned_widgets", [])
+                widget_id = room.get("widget_id")
+                if widget_id not in assigned_widgets:
+                    return Response(
+                        {"error": "You are not authorized to assign for this widget"},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
+            # ✅ Perform the assignment
             room_collection.update_one(
                 {"room_id": room_id},
                 {"$set": {"assigned_agent": agent_name}}
@@ -452,20 +432,21 @@ class AssignAgentToRoom(APIView):
 
             return Response(
                 {"message": f"Agent '{agent_name}' assigned to room '{room_id}'"},
-                status=status.HTTP_200_OK,
+                status=status.HTTP_200_OK
             )
 
         except PyMongoError as e:
+            logger.error(f"MongoDB Error: {str(e)}")
             return Response(
                 {"error": f"Database error: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         except Exception as e:
+            logger.error(f"Unexpected Error: {str(e)}")
             return Response(
                 {"error": f"Unexpected server error: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
 
 
 
@@ -831,53 +812,43 @@ class ContactListCreateView(APIView):
 
 
 
-class ContactRetrieveUpdateDeleteView(APIView):
-    def get_user_from_request(self, request):
-        auth = get_authorization_header(request).decode('utf-8')
-        if auth.startswith('Bearer '):
-            token = auth.split(' ')[1]
-            return decode_token(token)
-        return None
 
-    def is_agent_authorized_for_widget(self, user, contact):
-        agent_id = user.get('admin_id')
-        agent = get_admin_collection().find_one({'admin_id': agent_id})
-        assigned_widgets = agent.get('assigned_widgets', [])
-        return contact.get('widget_id') in assigned_widgets
+class ContactRetrieveUpdateDeleteView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = []  
+
+    def is_authorized(self, user, contact):
+        if user.get("role") == "superadmin":
+            return True
+        elif user.get("role") == "agent":
+            agent = get_admin_collection().find_one({'admin_id': user.get('admin_id')})
+            assigned_widgets = agent.get('assigned_widgets', []) if agent else []
+            return contact.get('widget_id') in assigned_widgets
+        return False
 
     def get_object(self, contact_id):
-        try:
-            return get_contact_collection().find_one({'contact_id': contact_id})
-        except Exception:
-            return None
-
+        return get_contact_collection().find_one({'contact_id': contact_id})
 
     def get(self, request, pk):
-        user = self.get_user_from_request(request)
-        if not user:
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
-
+        user = request.user  # Already set by JWTAuthentication
         contact = self.get_object(pk)
         if not contact:
             return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if user.get("role") == 'agent' and not self.is_agent_authorized_for_widget(user, contact):
-            return Response({'error': 'Permission denied: Not assigned to this widget'}, status=403)
+        if not self.is_authorized(user, contact):
+            return Response({'error': 'Permission denied'}, status=403)
 
         contact['_id'] = str(contact['_id'])
         return Response(contact)
 
     def put(self, request, pk):
-        user = self.get_user_from_request(request)
-        if not user:
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
-
+        user = request.user
         contact = self.get_object(pk)
         if not contact:
             return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if user.get("role") == 'agent' and not self.is_agent_authorized_for_widget(user, contact):
-            return Response({'error': 'Permission denied: Not assigned to this widget'}, status=403)
+        if not self.is_authorized(user, contact):
+            return Response({'error': 'Permission denied'}, status=403)
 
         updated_data = request.data
         updated_data['updated_at'] = datetime.utcnow()
@@ -888,19 +859,17 @@ class ContactRetrieveUpdateDeleteView(APIView):
         return Response(contact)
 
     def delete(self, request, pk):
-        user = self.get_user_from_request(request)
-        if not user:
-            return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
-
+        user = request.user
         contact = self.get_object(pk)
         if not contact:
             return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        if user.get("role") == 'agent' and not self.is_agent_authorized_for_widget(user, contact):
-            return Response({'error': 'Permission denied: Not assigned to this widget'}, status=403)
+        if not self.is_authorized(user, contact):
+            return Response({'error': 'Permission denied'}, status=403)
 
         get_contact_collection().delete_one({'contact_id': pk})
         return Response({'message': 'Deleted'}, status=status.HTTP_204_NO_CONTENT)
+
 
 
 

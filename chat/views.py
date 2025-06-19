@@ -1155,16 +1155,16 @@ class ChatMessagesByDateAPIView(APIView):
 
 
 
-from django.shortcuts import render
-from django.http import JsonResponse
-import requests
-import json
-
 import requests
 import json
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.views.decorators.http import require_http_methods
 
+@csrf_exempt  # Add this if you're having CSRF issues
+@require_http_methods(["GET", "POST"])  # Allow both GET and POST
 def test_widget_view(request):
     """
     View that integrates IP geolocation API to get IP information including flag, country, city
@@ -1178,59 +1178,127 @@ def test_widget_view(request):
             ip = request.META.get('REMOTE_ADDR')
         return ip
     
-    # Get IP from request or use a default for testing
-    client_ip = get_client_ip(request)
+    # FIXED: Handle IP address from different sources
+    client_ip = None
     
-    # For testing purposes, you can also get IP from GET parameter
-    test_ip = request.GET.get('ip', client_ip)
+    if request.method == 'POST':
+        try:
+            # Parse JSON body for POST requests
+            body = json.loads(request.body.decode('utf-8'))
+            client_ip = body.get('ip_address')
+            widget_id = body.get('widget_id')  # Get widget_id if needed
+            
+            # If no IP in body, try to get from headers
+            if not client_ip:
+                client_ip = get_client_ip(request)
+                
+        except json.JSONDecodeError:
+            # Handle form data or invalid JSON
+            client_ip = request.POST.get('ip_address') or get_client_ip(request)
+    else:
+        # GET request - get IP from query params or headers
+        client_ip = request.GET.get('ip', get_client_ip(request))
+    
+    # FIXED: Better error handling for missing IP
+    if not client_ip:
+        error_response = {
+            'error': 'IP address is required from frontend',
+            'message': 'Please ensure your widget is sending the IP address'
+        }
+        return JsonResponse(error_response, status=400)
+    
+    # For testing purposes, you can also override with a test IP
+    test_ip = request.GET.get('test_ip', client_ip)
     
     ip_info = None
     error_message = None
     
-    try:
-        # Using ipwhois.pro API with the IP parameter
-        response = requests.get(f'https://ipwhois.pro?key=8HaX4qcer2Ml9Hfc', timeout=10)
-        print(f"DEBUG: API URL: https://ipwhois.pro/{test_ip}?key=8HaX4qcer2Ml9Hfc")
-        print("DEBUG: Response from ipwhois.pro API:", response.text)
-        
-        if response.status_code == 200:
-            data = response.json()
+    # Handle local/localhost IPs
+    if not test_ip or test_ip in ['127.0.0.1', 'localhost', '::1']:
+        ip_info = {
+            'ip': test_ip,
+            'country': 'Local',
+            'city': 'Local',
+            'flag_emoji': '',
+            'flag_url': '',
+            'country_code': '',
+            'region': 'Local',
+            'timezone': '',
+            'isp': 'Local',
+        }
+    else:
+        try:
+            # FIXED: Correct API URL construction with IP parameter
+            api_url = f'https://ipwhois.pro/{test_ip}?key=8HaX4qcer2Ml9Hfc'
+            print(f"DEBUG: API URL: {api_url}")
             
-            # Extract the required information
-            ip_info = {
-                'ip': data.get('ip', test_ip),
-                'country': data.get('country', 'Unknown'),
-                'city': data.get('city', 'Unknown'),
-                'flag': data.get('country_flag', ''),  # Some APIs provide flag URL or emoji
-                'country_code': data.get('country_code', ''),
-                # Additional useful fields
-                'region': data.get('region', ''),
-                'timezone': data.get('timezone', ''),
-                'isp': data.get('isp', ''),
-            }
+            response = requests.get(api_url, timeout=10)
+            print("DEBUG: Response status:", response.status_code)
+            print("DEBUG: Response from ipwhois.pro API:", response.text)
             
-            # If flag is not provided by API, you can construct it using country code
-            if not ip_info['flag'] and ip_info['country_code']:
-                # Option 1: Use flag emoji (if country code is available)
-                country_code = ip_info['country_code'].upper()
-                if len(country_code) == 2:
-                    # Convert country code to flag emoji
-                    ip_info['flag_emoji'] = ''.join(chr(ord(c) + 127397) for c in country_code)
+            if response.status_code == 200:
+                data = response.json()
                 
-                # Option 2: Use a flag service URL
-                ip_info['flag_url'] = f"https://flagcdn.com/32x24/{country_code.lower()}.png"
+                # Check if API call was successful
+                if data.get('success', True):  # Some APIs return success field
+                    country_code = data.get('country_code', '').upper()
+                    
+                    # Construct flag data similar to your working class method
+                    flag_data = None
+                    if country_code and len(country_code) == 2:
+                        flag_data = {
+                            'emoji': ''.join(chr(ord(c) + 127397) for c in country_code),
+                            'url': f"https://flagcdn.com/32x24/{country_code.lower()}.png",
+                            'country_code': country_code
+                        }
+                    
+                    # Extract the required information
+                    ip_info = {
+                        'ip': data.get('ip', test_ip),
+                        'country': data.get('country', 'Unknown'),
+                        'city': data.get('city', 'Unknown'),
+                        'country_code': country_code,
+                        'region': data.get('region', ''),
+                        'timezone': data.get('timezone', ''),
+                        'isp': data.get('isp', ''),
+                        'flag_emoji': flag_data['emoji'] if flag_data else '',
+                        'flag_url': flag_data['url'] if flag_data else '',
+                        'flag': flag_data  # Complete flag object
+                    }
+                else:
+                    error_message = f"API returned error: {data.get('message', 'Unknown error')}"
+            else:
+                error_message = f"API request failed with status code: {response.status_code}"
                 
-        else:
-            error_message = f"API request failed with status code: {response.status_code}"
-            
-    except requests.exceptions.RequestException as e:
-        error_message = f"Error fetching IP information: {str(e)}"
-    except json.JSONDecodeError:
-        error_message = "Invalid JSON response from API"
-    except Exception as e:
-        error_message = f"Unexpected error: {str(e)}"
+        except requests.exceptions.RequestException as e:
+            error_message = f"Error fetching IP information: {str(e)}"
+        except json.JSONDecodeError:
+            error_message = "Invalid JSON response from API"
+        except Exception as e:
+            error_message = f"Unexpected error: {str(e)}"
     
-    # Prepare context for template
+    # FIXED: Handle both chat room creation and IP info requests
+    if request.method == 'POST' and 'widget_id' in (json.loads(request.body.decode('utf-8')) if request.body else {}):
+        # This is a chat room creation request
+        # Generate a room ID (you should implement your room creation logic here)
+        import uuid
+        room_id = str(uuid.uuid4())
+        
+        # You might want to save this room to your database
+        # Room.objects.create(room_id=room_id, widget_id=widget_id, ip_address=client_ip)
+        
+        response_data = {
+            'room_id': room_id,
+            'ip_info': ip_info,
+            'status': 'success'
+        }
+        
+        if error_message:
+            response_data['ip_error'] = error_message
+            
+        return JsonResponse(response_data)
+    
+    # Prepare context for template (for GET requests or non-chat POST requests)
     context = {
         'ip_address': test_ip,
         'ip_info': ip_info,
@@ -1238,7 +1306,7 @@ def test_widget_view(request):
     }
     
     # Return JSON response for AJAX requests
-    if request.headers.get('Accept') == 'application/json':
+    if request.headers.get('Accept') == 'application/json' or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
         return JsonResponse(context)
     
     # Return HTML template for regular requests

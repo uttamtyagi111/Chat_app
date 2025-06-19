@@ -120,7 +120,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 bottom: 90px;
                 right: 20px;
                 width: 340px;
-                height: 450px;
+                height: initial;
                 background: white;
                 border-radius: 12px;
                 box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
@@ -433,7 +433,7 @@ document.addEventListener("DOMContentLoaded", function () {
             <div id="emoji-picker"></div>
         </div>
     `;
-  document.body.appendChild(widgetContainer);
+ document.body.appendChild(widgetContainer);
 
   // Globals
   let audioContext = null;
@@ -441,6 +441,9 @@ document.addEventListener("DOMContentLoaded", function () {
   let roomId = localStorage.getItem("chat_room_id") || null;
   let notificationEnabled = true;
   const sentMessages = {};
+
+  // ADD THIS: IP caching variable
+  let cachedClientIP = null;
 
   // Widget state management
   let widgetState = {
@@ -464,6 +467,37 @@ document.addEventListener("DOMContentLoaded", function () {
   const removeFileBtn = document.getElementById("remove-file");
   const filePreviewContainer = document.getElementById("file-preview-container");
   const filePreviewName = document.getElementById("file-preview-name");
+
+  // ADD THIS: Function to get client IP
+  async function getClientIP() {
+    try {
+      const response = await fetch('https://api.ipify.org?format=json');
+      const data = await response.json();
+      if (data && data.ip) return data.ip;
+      throw new Error("Invalid IP data");
+    } catch (error) {
+      console.warn('Primary IP fetch failed:', error);
+      try {
+        const response = await fetch('https://ipapi.co/ip/');
+        const ip = await response.text();
+        return ip.trim();
+      } catch (fallbackError) {
+        console.warn('Fallback IP fetch failed:', fallbackError);
+        return null;
+      }
+    }
+  }
+
+
+  // ADD THIS: Function to cache client IP early
+  async function initializeClientIP() {
+    try {
+      cachedClientIP = await getClientIP();
+      console.log('IP cached for widget:', cachedClientIP);
+    } catch (error) {
+      console.warn('Failed to cache client IP:', error);
+    }
+  }
 
   // Initialize AudioContext once
   function initAudioContext() {
@@ -630,33 +664,53 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // Initialize chat session, create room if needed
-  function initializeChat() {
+  // REPLACE THIS: Initialize chat session, create room if needed - UPDATED VERSION
+  async function initializeChat() {
     if (roomId) {
       connectWebSocket(roomId);
       return;
     }
-    fetch(WIDGET_CONFIG.apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ widget_id: widgetId }),
-    })
-      .then((response) => {
-        if (!response.ok) {
-          response.json().then((data) => console.log("Response error:", data));
-          throw new Error("Failed to create room");
-        }
-        return response.json();
-      })
-      .then((data) => {
-        roomId = data.room_id;
-        localStorage.setItem("chat_room_id", roomId);
-        connectWebSocket(roomId);
-      })
-      .catch((error) => {
-        console.error("Error creating room:", error);
-        appendSystemMessage("Failed to start chat. Please try again.");
+
+    try {
+      // Get client IP address (use cached IP or fetch fresh)
+      // Get client IP address (use cached IP or fetch fresh)
+      const clientIP = cachedClientIP || await getClientIP();
+      console.log('Client IP obtained:', clientIP);
+
+      if (!clientIP) {
+        throw new Error("Client IP is not available. Cannot create chat room.");
+      }
+
+      // Prepare request body with IP address
+      const requestBody = {
+        widget_id: widgetId,
+        ip: clientIP // Include IP address in the request
+      };
+
+      const response = await fetch(WIDGET_CONFIG.apiUrl, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest" // Optional: helps identify AJAX requests
+        },
+        body: JSON.stringify(requestBody),
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.log("Response error:", errorData);
+        throw new Error(`Failed to create room: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      roomId = data.room_id;
+      localStorage.setItem("chat_room_id", roomId);
+      connectWebSocket(roomId);
+
+    } catch (error) {
+      console.error("Error creating room:", error);
+      appendSystemMessage("Failed to start chat. Please try again.");
+    }
   }
 
   // WebSocket connection setup
@@ -1103,9 +1157,12 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  // Initialize on DOM content loaded
-  document.addEventListener("DOMContentLoaded", () => {
+  // UPDATED: Initialize on DOM content loaded
+  document.addEventListener("DOMContentLoaded", async () => {
     console.log("Chat widget initialized");
+
+    // Cache the client IP early
+    await initializeClientIP();
 
     // Initialize widget behavior (closed state, notification timer)
     initializeWidgetBehavior();
