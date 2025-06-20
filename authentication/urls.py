@@ -1,7 +1,9 @@
 from django.urls import path
 from . import views
+from .views import health_check
 
 urlpatterns = [
+    path("health/", health_check, name="health_check"),
     path('register-superadmin/', views.register_superadmin, name='request_password_reset'),
     path('login/', views.login, name='request_password_reset'),
     path('logout/', views.logout, name='request_password_reset'),

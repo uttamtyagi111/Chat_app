@@ -22,12 +22,11 @@ from rest_framework import status
 from django.conf import settings
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from django.views.decorators.http import require_GET, require_http_methods
 
 
 logger = logging.getLogger(__name__)
 
-from django.views.decorators.http import require_GET, require_http_methods
-import json
 
 @require_GET
 @csrf_exempt
@@ -499,8 +498,8 @@ class UserChatAPIView(APIView):
                             'widget_id': openapi.Schema(type=openapi.TYPE_STRING, description='Widget ID'),
                             'widget_type': openapi.Schema(type=openapi.TYPE_STRING, description='Type of the widget'),
                             'name': openapi.Schema(type=openapi.TYPE_STRING, description='Name of the widget'), 
-                            'color': openapi.Schema(type=openapi.TYPE_STRING, description='Color of the widget'),
-                            'language': openapi.Schema(type=openapi.TYPE_STRING, description='Language of the widget'),
+                            # 'color': openapi.Schema(type=openapi.TYPE_STRING, description='Color of the widget'),
+                            # 'language': openapi.Schema(type=openapi.TYPE_STRING, description='Language of the widget'),
                         }
                     ),
                     'user_location': openapi.Schema(
@@ -586,8 +585,8 @@ class UserChatAPIView(APIView):
                 "widget_id": widget["widget_id"],
                 "widget_type": widget.get("widget_type"),
                 "name": widget.get("name"),
-                "color": widget.get("color"),
-                "language": widget.get("language", "en"),
+                # "color": widget.get("color"),
+                # "language": widget.get("language", "en"),
             },
             "user_location": {
                 "ip": client_ip,
@@ -1356,7 +1355,7 @@ class ChatMessagesAPIView(APIView):
         
         for msg in messages:
             msg['_id'] = str(msg['_id'])
-            msg['timestamp'] = msg['timestamp'],datetime.isoformat() if isinstance(msg['timestamp'], datetime) else msg['timestamp']
+            msg['timestamp'] = msg['timestamp'].isoformat() if isinstance(msg['timestamp'], datetime) else msg['timestamp']
             # Ensure timestamp is in ISO format 
             if isinstance(msg['timestamp'], str):
                 try:

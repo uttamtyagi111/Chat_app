@@ -16,6 +16,22 @@ from .utils import (
 from .utils import decode_token
 logger = logging.getLogger(__name__)
 
+
+# ✅ Health Check: simple endpoint to verify server is running
+@require_http_methods(["GET"])
+def health_check(request):
+    """
+    Health Check Endpoint
+    This endpoint is used to verify that the server is running and responsive.
+    Returns a JSON response with a success message.
+    """
+    logger.info("Health check endpoint accessed")
+    # You can add more checks here if needed, like database connectivity
+    return JsonResponse({"message":  "Server is UP"}, status=200)
+
+
+
+
 # ✅ Register superadmin (once only)
 @csrf_exempt
 def register_superadmin(request):
