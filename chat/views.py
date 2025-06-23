@@ -51,7 +51,7 @@ def get_widget(request, widget_id=None):
                 "updated_at": str(widget.get("updated_at", "")),
                 "settings": widget.get("settings", {
                     "position": "right",
-                    "logo": "",
+                    "logo": "logo",
                     "primaryColor": "#10B981",
                     "welcomeMessage": "",
                     "offlineMessage": "",
@@ -174,7 +174,7 @@ def update_widget(request, widget_id):
 
         # Prepare response
         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
-        direct_chat_link = f"{base_domain}/direct-chat/{widget_id}"
+        direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}"
 
         return JsonResponse({
             "widget_id": widget_id,
@@ -270,7 +270,7 @@ def create_widget(request):
         insert_with_timestamps(widget_collection, widget)
 
         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
-        direct_chat_link = f"{base_domain}/direct-chat/{widget['widget_id']}"
+        direct_chat_link = f"{base_domain}/chat/direct-chat/{widget['widget_id']}/"
 
         return JsonResponse({
             "widget_id": widget["widget_id"],
@@ -290,7 +290,7 @@ def create_widget(request):
 # Helper function to generate widget code
 def generate_widget_code(widget_id,request):
     base_domain = "http://localhost:8000" if "localhost" in request.get_host() else "http://208.87.134.149:8003"
-    script_url = f"{base_domain}/static/widget.js?widget_id={widget_id}"
+    script_url = f"{base_domain}/static/chat_widget.js?widget_id={widget_id}"
     return f"""
 <!-- Start of Chat Widget Script -->
 <script type="text/javascript">
@@ -305,17 +305,38 @@ var ChatWidget_API = ChatWidget_API || [], ChatWidget_LoadStart = new Date();
 </script>
 <!-- End of Chat Widget Script -->
 """
+import logging
+from django.http import JsonResponse
+from django.shortcuts import render
+from datetime import datetime
+
+logger = logging.getLogger(__name__)  # Use Django's logger
+
 def direct_chat(request, widget_id):
     widget_collection = get_widget_collection()
     widget = widget_collection.find_one({"widget_id": widget_id})
+
     if not widget:
+        logger.warning(f"[{datetime.now()}] Direct chat access failed — Widget not found: {widget_id}")
         return JsonResponse({"error": "Widget not found"}, status=404)
+
+    # Log access
+    logger.info(f"[{datetime.now()}] Direct chat accessed — Widget ID: {widget_id}, "
+                f"IP: {get_client_ip(request)}, User-Agent: {request.META.get('HTTP_USER_AGENT', '')}")
 
     context = {
         "widget_id": widget_id,
         "base_domain": "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003",
     }
     return render(request, "chat/direct_chat.html", context)
+
+# Utility function to get client IP
+def get_client_ip(request):
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        return x_forwarded_for.split(',')[0]
+    return request.META.get('REMOTE_ADDR')
+
 
 @swagger_auto_schema(
     method='get',

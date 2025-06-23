@@ -55,14 +55,27 @@
     </div>
 
     <script type="text/javascript">
-        var ChatWidget_API = ChatWidget_API || [], ChatWidget_LoadStart = new Date();
-        (function() {
-            var s1 = document.createElement("script"), s0 = document.getElementsByTagName("script")[0];
-            s1.async = true;
-            s1.src = "http://localhost:8000/static/js/direct_chat.js?widget_id=d68d454e-7763&v=1.1";
-            s1.charset = "UTF-8";
-            s0.parentNode.insertBefore(s1, s0);
-        })();
+    var ChatWidget_API = ChatWidget_API || [], ChatWidget_LoadStart = new Date();
+    (function() {
+        var widgetId = "{{ widget_id }}";  // Django will replace this
+        var s1 = document.createElement("script"), s0 = document.getElementsByTagName("script")[0];
+        s1.async = true;
+        s1.src = "http://localhost:8000/static/js/direct_chat.js?widget_id=" + widgetId + "&v=1.1";
+        s1.charset = "UTF-8";
+        s0.parentNode.insertBefore(s1, s0);
+    })();
+</script>
+    <script>
+        document.getElementById('send-button').addEventListener('click', function() {
+            var input = document.getElementById('chat-input');
+            var message = input.value.trim();
+            if (message) {
+                var chatMessages = document.getElementById('chat-messages');
+                chatMessages.innerHTML += '<div>' + message + '</div>';
+                input.value = '';
+                chatMessages.scrollTop = chatMessages.scrollHeight; // Scroll to the bottom
+            }
+        });
     </script>
 </body>
 </html>
