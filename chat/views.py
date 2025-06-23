@@ -51,6 +51,7 @@ def get_widget(request, widget_id=None):
                 "updated_at": str(widget.get("updated_at", "")),
                 "settings": widget.get("settings", {
                     "position": "right",
+                    "logo": "",
                     "primaryColor": "#10B981",
                     "welcomeMessage": "",
                     "offlineMessage": "",
