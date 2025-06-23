@@ -4,7 +4,7 @@ from venv import logger
 from django.http import JsonResponse
 from pymongo.errors import DuplicateKeyError
 from utils.random_id import generate_contact_id  # Import the contact ID generator
-from wish_bot.db import  get_admin_collection, get_contact_collection # Import the contacts collection
+from wish_bot.db import  get_admin_collection, get_contact_collection, get_widget_collection # Import the contacts collection
 import csv,io,json,uuid
 from datetime import datetime
 from pymongo.errors import PyMongoError  # Assuming PyMongo for MongoDB
@@ -67,7 +67,7 @@ def agent_list(request):
 
 
 from authentication.jwt_auth import JWTAuthentication
-class AddAgentView(APIView):
+class AddAgentView(APIView):  
     authentication_classes = [JWTAuthentication]    # We are using custom auth
     permission_classes = [IsSuperAdmin]      # Only superadmin can add agents
 
@@ -719,7 +719,6 @@ class ContactListCreateView(APIView):
 
         query = {}
 
-        # Filter only if specific fields are passed
         if contact_id:
             query['contact_id'] = contact_id
 
@@ -732,10 +731,8 @@ class ContactListCreateView(APIView):
             ]
 
         if role == 'agent':
-            # Agent: filter by their ID and assigned widgets
             agent = get_admin_collection().find_one({'admin_id': token_admin_id})
             allowed_widgets = agent.get('assigned_widgets', [])
-            # query['agent_id'] = token_admin_id
             if widget_id:
                 if widget_id not in allowed_widgets:
                     return Response({'error': 'Access denied to this widget'}, status=403)
@@ -744,18 +741,26 @@ class ContactListCreateView(APIView):
                 query['widget_id'] = {'$in': allowed_widgets}
 
         elif role == 'superadmin':
-            # Superadmin: optionally filter by agent_id or widget_id
             if agent_id:
                 query['agent_id'] = agent_id
             if widget_id:
                 query['widget_id'] = widget_id
 
-        # Fetch contacts
         contacts = list(get_contact_collection().find(query))
+
         for c in contacts:
             c['_id'] = str(c['_id'])
 
+            # Fetch agent data (only needed fields)
+            agent = get_admin_collection().find_one({'admin_id': c.get('agent_id')}, {'_id': 0, 'name': 1, 'email': 1, 'role': 1})
+            c['agent'] = agent if agent else {}
+
+            # Fetch widget data
+            widget = get_widget_collection().find_one({'widget_id': c.get('widget_id')}, {'_id': 0, 'name': 1, 'widget_type': 1, 'is_active': 1, 'created_at': 1})
+            c['widget'] = widget if widget else {}
+
         return Response(contacts)
+
 
 
     # @jwt_required
@@ -841,22 +846,23 @@ class ContactRetrieveUpdateDeleteView(APIView):
         contact['_id'] = str(contact['_id'])
         return Response(contact)
 
-    def put(self, request, pk):
+    def patch(self, request, pk):
         user = request.user
         contact = self.get_object(pk)
         if not contact:
             return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
-
         if not self.is_authorized(user, contact):
             return Response({'error': 'Permission denied'}, status=403)
-
-        updated_data = request.data
+        updated_data = request.data.copy()
         updated_data['updated_at'] = datetime.utcnow()
-
-        get_contact_collection().update_one({'contact_id': pk}, {'$set': updated_data})
+        result = get_contact_collection().update_one(
+            {'contact_id': pk},
+            {'$set': updated_data}
+        )
+        # Update in-memory dict and return updated copy
         contact.update(updated_data)
-        contact['_id'] = str(contact['_id'])
-        return Response(contact)
+        contact['_id'] = str(contact['_id'])  # Convert ObjectId to string for frontend
+        return Response(contact, status=200)
 
     def delete(self, request, pk):
         user = request.user
