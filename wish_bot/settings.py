@@ -37,12 +37,15 @@ ALLOWED_HOSTS = [
 CSRF_COOKIE_SECURE = True 
 CSRF_TRUSTED_ORIGINS = [
     "https://wish-bot.onrender.com",
+    "https://localhost:5173",
+    "https://208.87.134.149",
 ]
 
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:3000",
+    "http://208.87.134.149"
 ]
 CORS_ALLOW_ALL_ORIGINS = True
 
