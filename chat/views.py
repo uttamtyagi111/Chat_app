@@ -44,6 +44,7 @@ def get_widget(request, widget_id=None):
             return {
                 "widget_id": widget["widget_id"],
                 "widget_type": widget["widget_type"],
+                "domain": widget.get("domain", "http://localhost:9000"),
                 "name": widget["name"],
                 "is_active": widget.get("is_active", False),
                 "created_at": str(widget.get("created_at", "")),
@@ -118,6 +119,7 @@ def update_widget(request, widget_id):
         updated_settings = {
             "position": incoming_settings.get("position", current_settings.get("position", "right")),
             "primaryColor": incoming_settings.get("primaryColor", current_settings.get("primaryColor", "#10B981")),
+            "logo": incoming_settings.get("logo", current_settings.get("logo", "")),
             "welcomeMessage": incoming_settings.get("welcomeMessage", current_settings.get("welcomeMessage", "")),
             "offlineMessage": incoming_settings.get("offlineMessage", current_settings.get("offlineMessage", "")),
             "soundEnabled": incoming_settings.get("soundEnabled", current_settings.get("soundEnabled", True)),
@@ -126,6 +128,7 @@ def update_widget(request, widget_id):
         if role == "superadmin":
             # Superadmin: full update
             widget_type = data.get("widget_type", widget.get("widget_type"))
+            domain = data.get("domain", widget.get("domain", "http://localhost:8000"))
             name = data.get("name", widget.get("name"))
             is_active = data.get("is_active", widget.get("is_active"))
 
@@ -135,6 +138,7 @@ def update_widget(request, widget_id):
             # Check for duplicates
             duplicate = widget_collection.find_one({
                 "widget_type": widget_type,
+                "domain" : domain,
                 "name": name,
                 "widget_id": {"$ne": widget_id}
             })
@@ -143,6 +147,7 @@ def update_widget(request, widget_id):
 
             updated_fields.update({
                 "widget_type": widget_type,
+                "domain" : domain,
                 "name": name,
                 "is_active": is_active,
                 "settings": updated_settings
@@ -173,6 +178,7 @@ def update_widget(request, widget_id):
         return JsonResponse({
             "widget_id": widget_id,
             "widget_type": updated_fields.get("widget_type", widget.get("widget_type")),
+            "domain": widget.get("domain", "http://localhost:8000"),
             "name": updated_fields.get("name", widget.get("name")),
             "is_active": updated_fields.get("is_active", widget.get("is_active")),
             "settings": updated_fields.get("settings", widget.get("settings")),
@@ -214,11 +220,13 @@ def create_widget(request):
     try:
         data = json.loads(request.body)
         widget_type = data.get("widget_type")
+        domain = data.get("domain", "http://localhost:8000")
         name = data.get("name")
         is_active = data.get("is_active", False)
 
         settings = data.get("settings", {})
         position = settings.get("position", "right")
+        logo = settings.get("logo", "")
         primary_color = settings.get("primaryColor", "#10B981")
         welcome_message = settings.get("welcomeMessage", "Hello! How can we help you?")
         offline_message = settings.get("offlineMessage", "We're currently offline.")
@@ -237,17 +245,21 @@ def create_widget(request):
             )
             
         # Generate a unique widget_id
-        while widget_collection.find_one({"widget_id": widget_id}):
+        while True:
             widget_id = generate_widget_id()
+            if not widget_collection.find_one({"widget_id": widget_id}):
+             break
 
         widget = {
             "widget_id": widget_id,
             "widget_type": widget_type,
             "name": name,
+            "domain" : domain,
             "is_active": is_active,
             "settings": {
                 "position": position,
                 "primaryColor": primary_color,
+                "logo": logo,
                 "welcomeMessage": welcome_message,
                 "offlineMessage": offline_message,
                 "soundEnabled": sound_enabled,
@@ -262,6 +274,7 @@ def create_widget(request):
         return JsonResponse({
             "widget_id": widget["widget_id"],
             "widget_type": widget["widget_type"],
+            "domain": widget["domain"],
             "name": widget["name"],
             "is_active": widget["is_active"],
             "settings": widget["settings"],
