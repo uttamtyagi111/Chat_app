@@ -1,315 +1,437 @@
-document.addEventListener("DOMContentLoaded", function () {
-    // Extract widget_id from script tag
-    let scriptSrc;
-    const scripts = document.getElementsByTagName("script");
-    const script = Array.from(scripts).find(s => s.src.includes("direct_chat.js"));
-    if (script) {
-        scriptSrc = script.src;
+// Full widget JS with:
+// - fixed center image as chat background
+// - scrollable messages
+// - emoji picker
+// - file upload
+// - user message broadcasting retained
+
+(function () {
+    const CHAT_LOG_PREFIX = "[💬 ChatWidget]";
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", main);
     } else {
-        console.error("Unable to find direct_chat.js script tag");
-        return;
+        main();
     }
 
-    const urlParams = new URLSearchParams(scriptSrc.split('?')[1]);
-    const widgetId = urlParams.get('widget_id');
+    function injectStyles() {
+        const style = document.createElement("style");
+        style.innerHTML = `
+            body {
+                margin: 0;
+                padding: 0;
+                background-color: #f4f4f4;
+            }
 
-    if (!widgetId) {
-        console.error("Widget ID not found in script URL");
-        return;
+            #chat-container {
+                max-width: 800px;
+                margin: 0 auto;
+                height: 90vh;
+                border: 1px solid #ccc;
+                border-radius: 8px;
+                background: white;
+                display: flex;
+                flex-direction: column;
+                position: relative;
+                overflow: hidden;
+                box-shadow: 0 0 8px rgba(0, 0, 0, 0.1);
+            }
+
+            #chat-messages {
+                flex: 1;
+                padding: 20px;
+                overflow-y: auto;
+                background: url('https://emailbulkshoot.s3.ap-southeast-2.amazonaws.com/assests+for+Email+Automation/Techserve%404x.png') no-repeat center center;
+                background-size: contain;
+            }
+
+            .bubble-wrapper {
+                display: flex;
+                margin: 8px;
+                clear: both;
+            }
+            .bubble-wrapper.user {
+                justify-content: flex-end;
+            }
+            .bubble-wrapper.agent {
+                justify-content: flex-start;
+            }
+            .bubble-wrapper.system {
+                justify-content: center;
+            }
+
+            .message {
+                max-width: 75%;
+            }
+
+            .bubble {
+                padding: 10px 14px;
+                border-radius: 16px;
+                position: relative;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+                word-wrap: break-word;
+            }
+
+            .bubble-content {
+                font-size: 14px;
+            }
+
+            .timestamp {
+                font-size: 11px;
+                text-align: right;
+                margin-top: 5px;
+                opacity: 0.5;
+            }
+
+            .message.user .bubble {
+                background-color: #007bff;
+                color: white;
+                border-bottom-right-radius: 0;
+            }
+            .message.agent .bubble {
+                background-color: #e7f6e7;
+                color: black;
+                border-bottom-left-radius: 0;
+            }
+            .message.system .bubble {
+                background-color: #fff3cd;
+                color: #856404;
+                border-radius: 12px;
+            }
+
+            #chat-controls {
+                display: flex;
+                gap: 8px;
+                padding: 10px;
+                border-top: 1px solid #ddd;
+                background-color: #f9f9f9;
+            }
+
+            #chat-input {
+                flex: 1;
+                padding: 10px;
+                border-radius: 5px;
+                border: 1px solid #ccc;
+            }
+
+            #emoji-button,
+            #file-button,
+            #send-button {
+                padding: 0 12px;
+                background: white;
+                border: 1px solid #ccc;
+                border-radius: 5px;
+                cursor: pointer;
+            }
+
+            #emoji-picker {
+                position: absolute;
+                bottom: 60px;
+                left: 10px;
+                background: white;
+                border: 1px solid #ccc;
+                padding: 5px;
+                display: none;
+                z-index: 10;
+                border-radius: 6px;
+            }
+        `;
+        document.head.appendChild(style);
     }
 
-    const WIDGET_CONFIG = {
-        apiUrl: "http://localhost:8000/chat/user-chat/",
-        wsUrl: "ws://localhost:8000/ws/chat/",
-    };
-
-    let roomId = localStorage.getItem("chat_room_id");
-    let socket;
-    const sentMessages = {};
-    let systemMessageCount = 0;
-
-    const chatContainer = document.getElementById("chat-container");
-    if (!chatContainer) {
-        console.error("Chat container (#chat-container) not found");
-        return;
+    function appendEmojiPicker(input) {
+        const picker = document.createElement('div');
+        picker.id = "emoji-picker";
+        const emojis = ["😀", "😂", "😎", "👍", "🎉", "❤️", "🤖"];
+        emojis.forEach(e => {
+            const span = document.createElement("span");
+            span.textContent = e;
+            span.style.cursor = "pointer";
+            span.style.fontSize = "18px";
+            span.style.margin = "5px";
+            span.onclick = () => {
+                input.value += e;
+                picker.style.display = "none";
+            };
+            picker.appendChild(span);
+        });
+        document.body.appendChild(picker);
+        return picker;
     }
 
-    const chatForm = document.createElement("div");
-    chatForm.id = "chat-form";
-    chatForm.style.display = "none";
-    chatForm.innerHTML = `
-        <div class="form-group">
-            <label for="form-name">Name:</label>
-            <input id="form-name" type="text" placeholder="Enter your name" required />
-        </div>
-        <div class="form-group">
-            <label for="form-email">Email:</label>
-            <input id="form-email" type="email" placeholder="Enter your email" required />
-        </div>
-        <button id="form-submit" class="submit-btn">Submit</button>
-    `;
-    const chatMessages = document.getElementById("chat-messages");
-    if (chatMessages) {
-        chatContainer.insertBefore(chatForm, chatMessages.nextSibling);
+    function broadcastAttachment(inputElement, socket) {
+        inputElement.addEventListener("change", () => {
+            const file = inputElement.files[0];
+            if (file) {
+                const msgId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+                const text = `📎 ${file.name}`;
+                socket.send(JSON.stringify({ sender: "User", message: text, message_id: msgId }));
+                appendMessage("User", text, "user", msgId);
+            }
+        });
     }
 
-    const input = document.getElementById("chat-input");
-    const sendBtn = document.getElementById("send-button");
+    function main() {
+        console.group(`${CHAT_LOG_PREFIX} Initialization`);
 
-    const style = document.createElement("style");
-    style.innerHTML = `
-        #chat-form {
-            padding: 15px;
-            background: #f9f9f9;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            margin-bottom: 20px;
-        }
-        .form-group { margin-bottom: 10px; }
-        .form-group label {
-            display: block;
-            font-weight: 500;
-            margin-bottom: 5px;
-            color: #333;
-            font-size: 14px;
-        }
-        .form-group input {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            font-size: 14px;
-        }
-        .form-group input:focus {
-            border-color: #007bff;
-            outline: none;
-            box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.2);
-        }
-        .submit-btn {
-            padding: 10px 20px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        .submit-btn:hover { background-color: #0056b3; }
-        .message {
-            margin: 5px 0;
-            padding: 8px 12px;
-            border-radius: 5px;
-            max-width: 80%;
-            word-wrap: break-word;
-        }
-        .user {
-            background-color: #007bff;
-            color: white;
-            margin-left: auto;
-            text-align: right;
-        }
-        .agent {
-            background-color: #e5e5e5;
-            color: #333;
-            margin-right: auto;
-            text-align: left;
-        }
-        .system {
-            background-color: #f8d7da;
-            color: #721c24;
-            margin: 0 auto;
-            text-align: center;
-        }
-        .timestamp {
-            display: block;
-            font-size: 10px;
-            color: #999;
-            margin-top: 2px;
-        }
-    `;
-    document.head.appendChild(style);
+        injectStyles();  // ✅ Inject bubble CSS
 
-    function initializeChat(ip) {
-        if (roomId) {
-            connectWebSocket(roomId);
+        let scriptSrc;
+        const scripts = document.getElementsByTagName("script");
+        const script = Array.from(scripts).find(s => s.src.includes("direct_chat.js"));
+
+        if (script) {
+            scriptSrc = script.src;
+            console.log("📦 Script loaded from:", scriptSrc);
         } else {
+            console.error(`${CHAT_LOG_PREFIX} ❌ direct_chat.js script tag not found`);
+            console.groupEnd();
+            return;
+        }
+
+        const urlParams = new URLSearchParams(scriptSrc.split('?')[1]);
+        const widgetId = urlParams.get('widget_id');
+
+        if (!widgetId) {
+            console.error(`${CHAT_LOG_PREFIX} ❌ widget_id not found in script URL`);
+            console.groupEnd();
+            return;
+        }
+
+        console.log("🆔 Extracted widget_id:", widgetId);
+
+        const WIDGET_CONFIG = {
+            apiUrl: "http://localhost:8000/chat/user-chat/",
+            wsUrl: "ws://localhost:8000/ws/chat/",
+        };
+
+        const chatContainer = document.getElementById("chat-container");
+        const chatMessages = document.getElementById("chat-messages");
+        const input = document.getElementById("chat-input");
+        const sendBtn = document.getElementById("send-button");
+
+        if (!chatContainer || !chatMessages || !input || !sendBtn) {
+            console.error(`${CHAT_LOG_PREFIX} ❌ Required DOM elements missing`);
+            console.groupEnd();
+            return;
+        }
+
+        console.log("✅ Required DOM elements found");
+        console.groupEnd();
+
+        let socket;
+        let roomId = localStorage.getItem("chat_room_id");
+        const sentMessages = {};
+        let systemMessageCount = 0;
+
+        console.groupCollapsed(`${CHAT_LOG_PREFIX} Fetching IP`);
+        fetch("https://api.ipify.org?format=json")
+            .then(res => res.json())
+            .then(data => {
+                console.log("🌐 Detected IP:", data.ip);
+                initializeChat(data.ip);
+                console.groupEnd();
+            })
+            .catch(err => {
+                console.error("❌ IP Fetch Error:", err);
+                appendSystemMessage("Unable to get your IP address. Chat may not function.");
+                console.groupEnd();
+            });
+
+        function initializeChat(ip) {
+            if (roomId) {
+                console.log(`${CHAT_LOG_PREFIX} 📂 Using cached room_id:`, roomId);
+                connectWebSocket(roomId);
+                return;
+            }
+
+            console.group(`${CHAT_LOG_PREFIX} Creating Chat Room`);
             fetch(WIDGET_CONFIG.apiUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ widget_id: widgetId, ip }),
             })
-            .then(response => {
-                if (!response.ok) {
-                    return response.json().then(data => {
-                        console.error("Chat Init Response Error:", data);
-                        throw new Error(data.error || "Room creation failed");
-                    });
-                }
-                return response.json();
-            })
-            .then(data => {
-                roomId = data.room_id;
-                localStorage.setItem("chat_room_id", roomId);
-                connectWebSocket(roomId);
-            })
-            .catch(error => {
-                console.error("Chat Init Exception:", error);
-                appendSystemMessage("Failed to start chat. Please try again.");
-            });
+                .then(res => {
+                    if (!res.ok) {
+                        return res.json().then(data => {
+                            console.error("❌ Room creation failed:", data);
+                            throw new Error(data.error || "Room creation failed");
+                        });
+                    }
+                    return res.json();
+                })
+                .then(data => {
+                    roomId = data.room_id;
+                    localStorage.setItem("chat_room_id", roomId);
+                    console.log("✅ Room created with ID:", roomId);
+                    connectWebSocket(roomId);
+                    console.groupEnd();
+                })
+                .catch(err => {
+                    console.error("❌ Chat Init Failed:", err);
+                    appendSystemMessage("Chat failed to start. Please refresh or try again.");
+                    console.groupEnd();
+                });
         }
-    }
 
-    function connectWebSocket(roomId) {
-        if (socket) socket.close();
-        socket = new WebSocket(`${WIDGET_CONFIG.wsUrl}${roomId}/`);
+        function connectWebSocket(roomId) {
+            socket = new WebSocket(`${WIDGET_CONFIG.wsUrl}${roomId}/`);
 
-        socket.onopen = () => console.log("WebSocket connected");
+            socket.onopen = () => console.log(`${CHAT_LOG_PREFIX} 🔌 WebSocket connected`);
+            socket.onclose = e => {
+                console.warn(`${CHAT_LOG_PREFIX} ⚠️ WebSocket closed:`, e);
+                appendSystemMessage("Chat disconnected. Please refresh.");
+            };
+            socket.onerror = e => {
+                console.error(`${CHAT_LOG_PREFIX} 🚨 WebSocket error:`, e);
+                appendSystemMessage("WebSocket connection error.");
+            };
 
-        socket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                const formDiv = document.getElementById("chat-form");
-                const messagesDiv = document.getElementById("chat-messages");
+            socket.onmessage = event => {
+                console.groupCollapsed(`${CHAT_LOG_PREFIX} 📩 New message received`);
+                console.log("Raw:", event.data);
 
-                if (data.error) {
-                    console.warn("WebSocket message error:", data);
-                    appendSystemMessage(`Error: ${sanitizeHTML(data.error)}`);
-                } else if (data.form_data_received) {
-                    formDiv.style.display = "none";
-                    input.disabled = false;
-                    sendBtn.disabled = false;
-                    appendSystemMessage("Form submitted successfully. You can now chat.");
-                } else if (data.message) {
-                    const sender = data.sender;
-                    const className = sender === "User" ? "user" : sender === "System" ? "system" : "agent";
-                    appendMessage(sender, data.message, className, data.message_id, "delivered");
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log("Parsed:", data);
 
-                    if (sender === "System") {
-                        systemMessageCount++;
-                        if (systemMessageCount === 2) {
-                            formDiv.style.display = "block";
-                            input.disabled = true;
-                            sendBtn.disabled = true;
-                            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                    const formDiv = document.getElementById("chat-form");
+
+                    if (data.error) {
+                        appendSystemMessage(data.error);
+                    } else if (data.form_data_received) {
+                        formDiv.style.display = "none";
+                        input.disabled = false;
+                        sendBtn.disabled = false;
+                        appendSystemMessage("Form submitted. You can now chat.");
+                    } else if (data.message) {
+                        const sender = data.sender;
+                        let className = "agent";
+                        if (sender.toLowerCase() === "user") className = "user";
+                        else if (sender.toLowerCase() === "wish-bot" || sender.toLowerCase() === "system") className = "system";
+
+                        appendMessage(sender, data.message, className, data.message_id);
+
+                        if (sender.toLowerCase() === "system") {
+                            systemMessageCount++;
+                            if (systemMessageCount === 2) {
+                                formDiv.style.display = "block";
+                                input.disabled = true;
+                                sendBtn.disabled = true;
+                            }
+                        }
+
+                        if (sender.toLowerCase() !== "user") {
+                            socket.send(JSON.stringify({
+                                status: "seen",
+                                message_id: data.message_id,
+                                sender: "User"
+                            }));
                         }
                     }
-
-                    if (sender !== "User") {
-                        socket.send(JSON.stringify({
-                            status: "seen",
-                            message_id: data.message_id,
-                            sender: "User",
-                        }));
-                    }
+                } catch (e) {
+                    console.error(`${CHAT_LOG_PREFIX} ❌ JSON Parse Error:`, e);
                 }
-            } catch (e) {
-                console.error("WebSocket onmessage parse error:", e);
-            }
-        };
-
-        socket.onerror = (e) => {
-            console.error("WebSocket error:", e);
-            appendSystemMessage("WebSocket error occurred.");
-        };
-
-        socket.onclose = (e) => {
-            console.warn("WebSocket closed:", e);
-            appendSystemMessage("Disconnected. Please refresh.");
-        };
-    }
-
-    function appendMessage(sender, message, className, messageId, status) {
-        const messagesDiv = document.getElementById("chat-messages");
-        if (!messagesDiv || document.getElementById(`msg-${messageId}`)) return;
-
-        const div = document.createElement("div");
-        div.className = `message ${className}`;
-        div.id = `msg-${messageId}`;
-        const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        div.innerHTML = `<span>${sanitizeHTML(message)}</span><span class="timestamp">${time}</span>`;
-        messagesDiv.appendChild(div);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
-        if (sender === "User") sentMessages[messageId] = true;
-    }
-
-    function appendSystemMessage(message) {
-        appendMessage("System", message, "system", `sys-${Date.now()}`, "delivered");
-    }
-
-    function sanitizeHTML(str) {
-        const div = document.createElement("div");
-        div.textContent = str;
-        return div.innerHTML;
-    }
-
-    function generateMessageId() {
-        return `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    }
-
-    function isValidEmail(email) {
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        return emailRegex.test(email);
-    }
-
-    document.getElementById("form-submit")?.addEventListener("click", () => {
-        const name = document.getElementById("form-name").value.trim();
-        const email = document.getElementById("form-email").value.trim();
-        if (!name || !email) {
-            console.warn("Form Submission Error: Missing name or email");
-            appendSystemMessage("Please fill out both fields.");
-            return;
+                console.groupEnd();
+            };
         }
-        if (!isValidEmail(email)) {
-            console.warn("Form Submission Error: Invalid email format");
-            appendSystemMessage("Enter a valid email address.");
-            return;
-        }
-        const messageId = generateMessageId();
-        socket.send(JSON.stringify({
-            form_data: { name, email },
-            sender: "User",
-            message_id: messageId,
-        }));
-        appendMessage("User", `Name: ${name}, Email: ${email}`, "user", messageId, "sent");
-        document.getElementById("form-name").value = "";
-        document.getElementById("form-email").value = "";
-    });
 
-    if (input && sendBtn) {
-        input.addEventListener("keypress", (e) => {
-            if (e.key === "Enter" && input.value.trim() && socket && !input.disabled) sendMessage();
-        });
-        sendBtn.addEventListener("click", () => {
-            if (input.value.trim() && socket && !input.disabled) sendMessage();
+        function appendMessage(sender, message, className, messageId) {
+            if (document.getElementById(`msg-${messageId}`)) return;
+
+            const div = document.createElement("div");
+            div.className = `message ${className}`;
+            div.id = `msg-${messageId}`;
+
+            const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+            div.innerHTML = `
+                <div class="bubble">
+                    <div class="bubble-content">${sanitizeHTML(message)}</div>
+                    <div class="timestamp">${time}</div>
+                </div>
+            `;
+
+            const wrapper = document.createElement("div");
+            wrapper.className = `bubble-wrapper ${className}`;
+            wrapper.appendChild(div);
+            chatMessages.appendChild(wrapper);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function appendSystemMessage(msg) {
+            appendMessage("System", msg, "system", `sys-${Date.now()}`);
+        }
+
+        function sanitizeHTML(str) {
+            const div = document.createElement("div");
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function generateMessageId() {
+            return `msg-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+        }
+
+        sendBtn.addEventListener("click", sendMessage);
+        input.addEventListener("keypress", e => {
+            if (e.key === "Enter" && !input.disabled) sendMessage();
         });
 
         function sendMessage() {
-            const messageId = generateMessageId();
-            socket.send(JSON.stringify({
-                message: input.value,
-                sender: "User",
-                message_id: messageId,
-            }));
-            appendMessage("User", input.value, "user", messageId, "sent");
+            const text = input.value.trim();
+            if (!text || !socket) return;
+            const msgId = generateMessageId();
+            socket.send(JSON.stringify({ message: text, sender: "User", message_id: msgId }));
+            appendMessage("User", text, "user", msgId);
             input.value = "";
         }
-    }
 
-    // Fetch IP and start chat
-    fetch('https://api.ipify.org?format=json')
-        .then(res => res.json())
-        .then(data => initializeChat(data.ip))
-        .catch(err => {
-            console.error("IP Fetch Error:", err);
-            appendSystemMessage("Unable to fetch IP address. Chat may not work.");
+        // Optional: Form Handling
+        const chatForm = document.createElement("div");
+        chatForm.id = "chat-form";
+        chatForm.style.display = "none";
+        chatForm.innerHTML = `
+            <div class="form-group">
+                <label for="form-name">Name:</label>
+                <input id="form-name" type="text" required placeholder="Your name" />
+            </div>
+            <div class="form-group">
+                <label for="form-email">Email:</label>
+                <input id="form-email" type="email" required placeholder="Your email" />
+            </div>
+            <button id="form-submit" class="submit-btn">Submit</button>
+        `;
+        chatContainer.insertBefore(chatForm, chatMessages.nextSibling);
+
+        document.getElementById("form-submit")?.addEventListener("click", () => {
+            const name = document.getElementById("form-name").value.trim();
+            const email = document.getElementById("form-email").value.trim();
+
+            console.group(`${CHAT_LOG_PREFIX} ✍️ Form Submission`);
+            console.log("👤 Name:", name);
+            console.log("📧 Email:", email);
+
+            if (!name || !email) {
+                console.warn("⚠️ Missing form fields");
+                appendSystemMessage("Please fill in both name and email.");
+                console.groupEnd();
+                return;
+            }
+
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                appendSystemMessage("Invalid email format.");
+                return;
+            }
+
+            const msgId = generateMessageId();
+            socket.send(JSON.stringify({
+                sender: "User",
+                form_data: { name, email },
+                message_id: msgId,
+            }));
+            appendMessage("User", `Name: ${name}, Email: ${email}`, "user", msgId);
+            console.groupEnd();
         });
-});
-// Ensure the chat container exists before running the script
-if (!document.getElementById("chat-container")) {   
-    console.error("Chat container (#chat-container) not found in the document.");
-}   else {
-    // The script will run once the DOM is fully loaded
-    document.addEventListener("DOMContentLoaded", function () {
-        // The rest of the code will execute here
-    });
-}   
-// Ensure the chat messages container exists before running the 
+    }
+})();

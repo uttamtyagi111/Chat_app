@@ -579,7 +579,8 @@ class UserChatAPIView(APIView):
             return Response({"error": "Widget ID is required"}, status=status.HTTP_400_BAD_REQUEST)
         if not client_ip:
             return Response({"error": "IP address is required from frontend"}, status=status.HTTP_400_BAD_REQUEST)
-
+        
+        print(f"[UserChatAPIView] Received POST - Widget ID: {widget_id}, IP: {client_ip}")
         # Get geolocation for given IP
         ip_info = self.get_ip_geolocation(client_ip)
 
@@ -588,12 +589,15 @@ class UserChatAPIView(APIView):
 
         widget = widget_collection.find_one({"widget_id": widget_id})
         if not widget:
+            print(f"[UserChatAPIView] Widget not found: {widget_id}")
             return Response({"error": "Widget not found"}, status=status.HTTP_404_NOT_FOUND)
 
         # Generate a unique room_id
         room_id = generate_room_id()
         while room_collection.find_one({'room_id': room_id}):
             room_id = generate_room_id()
+            
+        print(f"[UserChatAPIView] Creating room with ID: {room_id}")
 
         room_document = {
             'room_id': room_id,
@@ -613,6 +617,7 @@ class UserChatAPIView(APIView):
             }
         }
         insert_with_timestamps(room_collection, room_document)
+        print(f"[UserChatAPIView] Room {room_id} inserted in DB.")
 
         response_data = {
             "room_id": room_id,
@@ -638,6 +643,8 @@ class UserChatAPIView(APIView):
         if ip_info.get('flag'):
             response_data["user_location"]["flag"] = ip_info['flag']
 
+        
+        print(f"[UserChatAPIView] Sending response with room_id: {room_id}")
         return Response(response_data, status=status.HTTP_201_CREATED)
 
     def get_client_ip(self, request):
