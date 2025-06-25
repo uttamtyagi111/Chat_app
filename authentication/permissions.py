@@ -20,6 +20,11 @@ class IsSuperAdmin(BasePermission):
         return True
 
 
+from rest_framework.permissions import BasePermission
+from django.contrib.auth.models import AnonymousUser
+
+logger = logging.getLogger(__name__)
+
 class IsAgentOrSuperAdmin(BasePermission):
     """
     Allows full access to superadmin.
@@ -27,18 +32,20 @@ class IsAgentOrSuperAdmin(BasePermission):
     """
 
     def has_permission(self, request, view):
-        user = getattr(request, "user", {})
+        user = getattr(request, "user", None)
+
+        if not user or isinstance(user, AnonymousUser) or not hasattr(user, "get"):
+            return False
+
         role = user.get("role")
-
-        # Superadmin has global permission
-        if role == "superadmin":
-            return True
-
-        # Agent needs to be verified per object (done in has_object_permission)
-        return role == "agent"
+        return role in ["superadmin", "agent"]
 
     def has_object_permission(self, request, view, obj):
-        user = getattr(request, "user", {})
+        user = getattr(request, "user", None)
+
+        if not user or isinstance(user, AnonymousUser) or not hasattr(user, "get"):
+            return False
+
         role = user.get("role")
 
         if role == "superadmin":
