@@ -235,7 +235,7 @@ class EditAgentAPIView(APIView):
                 return Response({'message': 'No valid fields to update'}, status=400)
 
             update_fields['updated_at'] = datetime.utcnow()
-            result = agents_collection.update_one({'admin_id': agent_id}, {'$set': update_fields},{'updated_at': datetime.utcnow()})
+            result = agents_collection.update_one({'admin_id': agent_id}, {'$set': update_fields})
 
             if result.modified_count == 0:
                 return Response({'message': 'No changes made.'}, status=200)

@@ -4,63 +4,20 @@
     <meta charset="UTF-8">
     <title>Chat - {{ widget_id }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f4f4f4;
-        }
-        #chat-container {
-            max-width: 600px;
-            margin: 0 auto;
-            border: 1px solid #ccc;
-            padding: 20px;
-            background-color: white;
-            border-radius: 5px;
-        }
-        #chat-messages {
-            height: 300px;
-            overflow-y: auto;
-            border: 1px solid #ddd;
-            padding: 10px;
-            margin-bottom: 20px;
-        }
-        #chat-input {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            margin-bottom: 10px;
-        }
-        #send-button {
-            padding: 10px 20px;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        #send-button:hover {
-            background-color: #0056b3;
-        }
-    </style>
 </head>
 <body>
     <div id="chat-container">
         <h2>Chat with Us</h2>
         <div id="chat-messages"></div>
         <input type="text" id="chat-input" placeholder="Type your message..." />
-        <button id="send-button">Send</button>
+        <button id="send-button">➤</button>
     </div>
 
-    <!-- Configuration from backend -->
     <script>
         const WIDGET_ID = "{{ widget_id }}";
         const BASE_DOMAIN = "{{ base_domain }}";
     </script>
 
-    <!-- Chat bootstrapping script -->
     <script>
         (function () {
             console.log("🚀 Initializing direct chat...");
@@ -68,6 +25,7 @@
             console.log("🌍 Base Domain:", BASE_DOMAIN);
 
             const script = document.createElement("script");
+            // Ensure this path is correct for your server setup
             script.src = BASE_DOMAIN + "/static/js/direct_chat.js?widget_id=" + WIDGET_ID + "&v=" + Date.now();
             script.onload = function () {
                 console.log("✅ direct_chat.js loaded successfully.");
@@ -77,23 +35,6 @@
             };
             document.head.appendChild(script);
         })();
-    </script>
-
-    <!-- Optional fallback just for typing preview -->
-    <script>
-        document.getElementById('send-button').addEventListener('click', function () {
-            const input = document.getElementById('chat-input');
-            const message = input.value.trim();
-            if (message) {
-                const chatBox = document.getElementById('chat-messages');
-                const msgEl = document.createElement('div');
-                msgEl.style.color = "#999";
-                msgEl.innerText = "Preview: " + message;
-                chatBox.appendChild(msgEl);
-                input.value = '';
-                chatBox.scrollTop = chatBox.scrollHeight;
-            }
-        });
     </script>
 </body>
 </html>
