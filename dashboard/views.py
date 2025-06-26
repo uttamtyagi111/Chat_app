@@ -1,4 +1,5 @@
 from ast import Is
+import token
 import traceback
 from venv import logger
 from django.http import JsonResponse
@@ -68,8 +69,8 @@ def agent_list(request):
 
 from authentication.jwt_auth import JWTAuthentication
 class AddAgentView(APIView):  
-    authentication_classes = [JWTAuthentication]    # We are using custom auth
-    permission_classes = [IsSuperAdmin]      # Only superadmin can add agents
+    authentication_classes = [JWTAuthentication]    
+    permission_classes = [IsSuperAdmin]      
 
     @extend_schema(
         request={
@@ -94,13 +95,9 @@ class AddAgentView(APIView):
             403: OpenApiResponse(response={"error": "Unauthorized"}),
             500: OpenApiResponse(description="Internal Server Error")
         },
-        description="Only superadmin can add an agent. Requires name, email, password."
+        description="Only superadmin can add an agent. Requires name, email, and password."
     )
     def post(self, request):
-        # user = getattr(request, 'jwt_user', None)
-        # if not user or user.get('role') != 'superadmin':
-        #     return Response({'error': 'Unauthorized'}, status=403)
-
         try:
             data = request.data if hasattr(request, 'data') else json.loads(request.body)
         except (json.JSONDecodeError, ValueError):
@@ -111,9 +108,9 @@ class AddAgentView(APIView):
         password = data.get('password', '').strip()
         assigned_widgets = data.get('assigned_widgets', [])
         organization = data.get('organization', None)
+
         if not isinstance(assigned_widgets, list):
             return Response({"message": "assigned_widgets must be a list"}, status=400)
-
 
         if not name or not email or not password:
             return Response({"message": "Name, Email and Password are required"}, status=400)
@@ -123,10 +120,17 @@ class AddAgentView(APIView):
 
         try:
             agents_collection = get_admin_collection()
+            
+            # 🔒 Check for unique email
             if agents_collection.find_one({"email": email}):
                 return Response({"message": "Agent with this email already exists."}, status=400)
+            
+            # 🔒 Check for unique name
+            if agents_collection.find_one({"name": name}):
+                return Response({"message": "Agent with this name already exists."}, status=400)
+
         except Exception as e:
-            return Response({"message": "Database error while checking existing agent"}, status=500)
+            return Response({"message": "Database error while checking for existing agent"}, status=500)
 
         agent_data = {
             'name': name,
@@ -150,6 +154,7 @@ class AddAgentView(APIView):
                 return Response({"message": "Failed to create agent"}, status=500)
         except Exception as e:
             return Response({"message": f"Error creating agent: {str(e)}"}, status=500)
+
 
 
 class EditAgentAPIView(APIView):
@@ -235,7 +240,7 @@ class EditAgentAPIView(APIView):
                 return Response({'message': 'No valid fields to update'}, status=400)
 
             update_fields['updated_at'] = datetime.utcnow()
-            result = agents_collection.update_one({'admin_id': agent_id}, {'$set': update_fields},{'updated_at': datetime.utcnow()})
+            result = agents_collection.update_one({'admin_id': agent_id}, {'$set': update_fields})
 
             if result.modified_count == 0:
                 return Response({'message': 'No changes made.'}, status=200)
@@ -277,13 +282,21 @@ class DeleteAgentAPIView(APIView):
             return Response({'detail': f"Unexpected error: {str(e)}"}, status=500)
 
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from authentication.jwt_auth import JWTAuthentication
+from wish_bot.db import get_admin_collection
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+import traceback
+
 class AgentDetailAPIView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = []  # We'll handle role logic manually here
+    permission_classes = []  # Role-based access handled manually
 
     @extend_schema(
-        summary="Get agent details",
-        description="Returns detailed info of a specific agent. Superadmin can view anyone. Agents can view their own profile.",
+        summary="Get agent or superadmin details",
+        description="Superadmin can view anyone. Agents can view their own profile only.",
         responses={
             200: OpenApiResponse(response={
                 'type': 'object',
@@ -299,45 +312,37 @@ class AgentDetailAPIView(APIView):
     def get(self, request, agent_id=None):
         try:
             user = request.user
-            print("🔐 JWT User Payload:", user)
-
             role = user.get("role")
+            token_admin_id = user.get("admin_id")
+
+            print("🔐 JWT User Payload:", user)
             print("👤 Role:", role)
             print("🔎 agent_id from URL:", agent_id)
 
-            if role == "superadmin":
-                print("✅ Superadmin access granted")
+            # Determine whose profile to fetch
+            if not agent_id:
+                agent_id = token_admin_id  # Fallback to own profile
 
-            elif role == "agent":
-                token_admin_id = user.get("admin_id")
-                print("🆔 admin_id from token:", token_admin_id)
+            if role == "agent" and agent_id != token_admin_id:
+                print("❌ Agent trying to access another profile")
+                return Response({'error': 'Forbidden'}, status=403)
 
-                # Fallback if agent_id is not passed
-                if not agent_id:
-                    print("ℹ️ No agent_id passed, using token admin_id")
-                    agent_id = token_admin_id
-
-                elif agent_id != token_admin_id:
-                    print("❌ agent_id mismatch! Token:", token_admin_id, "URL param:", agent_id)
-                    return Response({'error': 'Forbidden'}, status=403)
-
-                print("✅ Agent access granted to their own data")
-
-            else:
-                print("❌ Unauthorized role:", role)
-                return Response({'error': 'Unauthorized'}, status=403)
-
-            # ✅ Fetch agent from DB
             agents_collection = get_admin_collection()
-            print("📦 Fetching from DB: admin_id =", agent_id)
 
-            agent = agents_collection.find_one({'admin_id': agent_id, 'role': 'agent'})
+            # Superadmin can access any profile (no role restriction)
+            query = {'admin_id': agent_id}
+            if role == "agent":
+                query['role'] = 'agent'  # Enforce only agent records for agents
+
+            agent = agents_collection.find_one(query)
             if not agent:
                 print("❌ Agent not found in DB")
                 return Response({'error': 'Agent not found'}, status=404)
 
             print("✅ Agent found:", agent.get("name", "No Name"))
-            agent['_id'] = str(agent['_id'])
+            agent['_id'] = str(agent['_id'])  # MongoDB ObjectId -> str
+            agent['is_self'] = (agent_id == token_admin_id)
+
             return Response({'agent': agent}, status=200)
 
         except Exception as e:
@@ -345,109 +350,202 @@ class AgentDetailAPIView(APIView):
             traceback.print_exc()
             return Response({'error': f"Internal error: {str(e)}"}, status=500)
 
+
 import logging
 logger = logging.getLogger(__name__)
 
-class AssignAgentToRoom(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAgentOrSuperAdmin]
+# class AssignAgentToRoom(APIView):
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [IsAgentOrSuperAdmin]
 
-    @extend_schema(
-        operation_id="assignAgentToRoom",
-        summary="Assign an agent to an existing chat room by room_id",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "room_id": {"type": "string", "description": "Chat room ID"},
-                    "agent_id": {"type": "string", "description": "ID of the agent to assign"},
-                },
-                "required": ["room_id", "agent_id"],
-                "example": {
-                    "room_id": "room123",
-                    "agent_id": "admin_123456"
-                }
-            }
-        },
-        responses={
-            200: {"description": "Agent assigned successfully"},
-            400: {"description": "Bad Request"},
-            403: {"description": "Forbidden"},
-            404: {"description": "Room not found"},
-            500: {"description": "Internal Server Error"},
-        }
-    )
-    def post(self, request):
-        try:
-            user = request.user
-            role = user.get("role")
-            room_id = request.data.get("room_id")
-            agent_id = request.data.get("agent_id")
+#     @extend_schema(
+#         operation_id="assignAgentToRoom",
+#         summary="Assign an agent to an existing chat room by room_id",
+#         request={
+#             "application/json": {
+#                 "type": "object",
+#                 "properties": {
+#                     "room_id": {"type": "string", "description": "Chat room ID"},
+#                     "agent_id": {"type": "string", "description": "ID of the agent to assign"},
+#                 },
+#                 "required": ["room_id", "agent_id"],
+#                 "example": {
+#                     "room_id": "room123",
+#                     "agent_id": "admin_123456"
+#                 }
+#             }
+#         },
+#         responses={
+#             200: {"description": "Agent assigned successfully"},
+#             400: {"description": "Bad Request"},
+#             403: {"description": "Forbidden"},
+#             404: {"description": "Room not found"},
+#             500: {"description": "Internal Server Error"},
+#         }
+#     )
+#     def post(self, request):
+#         try:
+#             user = request.user
+#             role = user.get("role")
+#             room_id = request.data.get("room_id")
+#             agent_id = request.data.get("agent_id")
 
-            if not room_id or not agent_id:
-                return Response(
-                    {"error": "room_id and agent_id are required"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+#             if not room_id or not agent_id:
+#                 return Response(
+#                     {"error": "room_id and agent_id are required"},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
 
-            room_collection = get_room_collection()
-            room = room_collection.find_one({"room_id": room_id})
-            if not room:
-                return Response(
-                    {"error": "Chat room not found"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+#             room_collection = get_room_collection()
+#             room = room_collection.find_one({"room_id": room_id})
+#             if not room:
+#                 return Response(
+#                     {"error": "Chat room not found"},
+#                     status=status.HTTP_404_NOT_FOUND
+#                 )
 
-            # Fetch agent info
-            agent_doc = get_admin_collection().find_one({"admin_id": agent_id})
-            if not agent_doc:
-                return Response(
-                    {"error": "Agent not found"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-            agent_name = agent_doc.get("name", "Unknown Agent")
+#             # Fetch agent info
+#             agent_doc = get_admin_collection().find_one({"admin_id": agent_id})
+#             if not agent_doc:
+#                 return Response(
+#                     {"error": "Agent not found"},
+#                     status=status.HTTP_404_NOT_FOUND
+#                 )
+#             agent_name = agent_doc.get("name", "Unknown Agent")
 
-            # ✅ Agent-specific checks
-            if role == "agent":
-                requester_id = user.get("admin_id")
-                if agent_id != requester_id:
-                    return Response(
-                        {"error": "Agents can only assign themselves to rooms"},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
+#             # ✅ Agent-specific checks
+#             if role == "agent":
+#                 requester_id = user.get("admin_id")
+#                 if agent_id != requester_id:
+#                     return Response(
+#                         {"error": "Agents can only assign themselves to rooms"},
+#                         status=status.HTTP_403_FORBIDDEN
+#                     )
 
-                assigned_widgets = get_admin_collection().find_one({"admin_id": requester_id}).get("assigned_widgets", [])
-                widget_id = room.get("widget_id")
-                if widget_id not in assigned_widgets:
-                    return Response(
-                        {"error": "You are not authorized to assign for this widget"},
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
+#                 assigned_widgets = get_admin_collection().find_one({"admin_id": requester_id}).get("assigned_widgets", [])
+#                 widget_id = room.get("widget_id")
+#                 if widget_id not in assigned_widgets:
+#                     return Response(
+#                         {"error": "You are not authorized to assign for this widget"},
+#                         status=status.HTTP_403_FORBIDDEN,
+#                     )
 
-            # ✅ Perform the assignment
-            room_collection.update_one(
-                {"room_id": room_id},
-                {"$set": {"assigned_agent": agent_name}}
-            )
+#             # ✅ Perform the assignment
+#             room_collection.update_one(
+#                 {"room_id": room_id},
+#                 {"$set": {"assigned_agent": agent_id}}
+#             )
 
-            return Response(
-                {"message": f"Agent '{agent_name}' assigned to room '{room_id}'"},
-                status=status.HTTP_200_OK
-            )
+#             return Response(
+#                 {"message": f"Agent '{agent_name}' assigned to room '{room_id}'"},
+#                 status=status.HTTP_200_OK
+#             )
 
-        except PyMongoError as e:
-            logger.error(f"MongoDB Error: {str(e)}")
-            return Response(
-                {"error": f"Database error: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        except Exception as e:
-            logger.error(f"Unexpected Error: {str(e)}")
-            return Response(
-                {"error": f"Unexpected server error: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+#         except PyMongoError as e:
+#             logger.error(f"MongoDB Error: {str(e)}")
+#             return Response(
+#                 {"error": f"Database error: {str(e)}"},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
+#         except Exception as e:
+#             logger.error(f"Unexpected Error: {str(e)}")
+#             return Response(
+#                 {"error": f"Unexpected server error: {str(e)}"},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
 
+
+
+# @jwt_required
+# def  conversation_list(request):
+#     try:
+#         user = request.user
+#         role = user.get('role')
+#         assigned_widgets = user.get('assigned_widgets', [])
+
+#         collection = get_chat_collection()
+
+#         pipeline = [
+#             {"$sort": {"timestamp": DESCENDING}},
+#             {
+#                 "$group": {
+#                     "_id": "$room_id",
+#                     "last_message": {"$first": "$message"},
+#                     "last_timestamp": {"$first": "$timestamp"},
+#                     "total_messages": {"$sum": 1},
+#                 }
+#             },
+#             {
+#                 "$lookup": {
+#                     "from": "rooms",
+#                     "localField": "_id",
+#                     "foreignField": "room_id",
+#                     "as": "room"
+#                 }
+#             },
+#             {"$unwind": {"path": "$room", "preserveNullAndEmptyArrays": True}},
+#         ]
+
+#         if role == 'agent':
+#             pipeline.append({
+#                 "$match": {
+#                     "room.widget_id": {"$in": assigned_widgets}
+#                 }
+#             })
+
+#         pipeline += [
+#             {
+#                 "$lookup": {
+#                     "from": "widgets",
+#                     "localField": "room.widget_id",
+#                     "foreignField": "widget_id",
+#                     "as": "widget"
+#                 }
+#             },
+#             {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
+#             {
+#                 "$project": {
+#                     "room_id": "$_id",
+#                     "last_message": 1,
+#                     "last_timestamp": 1,
+#                     "total_messages": 1,
+#                     "widget": {
+#                         "widget_id": "$widget.widget_id",
+#                         "name": "$widget.name",
+#                         "is_active": "$widget.is_active",
+#                         "created_at": "$widget.created_at"
+#                     }
+#                 }
+#             },
+#             {"$sort": {"last_timestamp": DESCENDING}}
+#         ]
+
+#         conversations = list(collection.aggregate(pipeline))
+
+#         for convo in conversations:
+#             if isinstance(convo.get('last_timestamp'), datetime):
+#                 convo['last_timestamp'] = convo['last_timestamp'].isoformat()
+#             if not convo.get('widget'):
+#                 convo['widget'] = {
+#                     'widget_id': '',
+#                     'name': 'No Widget',
+#                     'is_active': False,
+#                     'created_at': ''
+#                 }
+#             elif isinstance(convo['widget'].get('created_at'), datetime):
+#                 convo['widget']['created_at'] = convo['widget']['created_at'].isoformat()
+
+#         return JsonResponse({
+#             "conversations": conversations,
+#             "total_count": len(conversations)
+#         }, status=200)
+
+#     except Exception as e:
+#         return JsonResponse({
+#             "error": f"Error fetching conversations: {str(e)}",
+#             "conversations": [],
+#             "total_count": 0
+#         }, status=500)
 
 
 @jwt_required
@@ -457,90 +555,116 @@ def conversation_list(request):
         role = user.get('role')
         assigned_widgets = user.get('assigned_widgets', [])
 
-        collection = get_chat_collection()
+        room_collection = get_room_collection()
 
-        pipeline = [
-            {"$sort": {"timestamp": DESCENDING}},
-            {
-                "$group": {
-                    "_id": "$room_id",
-                    "last_message": {"$first": "$message"},
-                    "last_timestamp": {"$first": "$timestamp"},
-                    "total_messages": {"$sum": 1},
-                }
-            },
-            {
-                "$lookup": {
-                    "from": "rooms",
-                    "localField": "_id",
-                    "foreignField": "room_id",
-                    "as": "room"
-                }
-            },
-            {"$unwind": {"path": "$room", "preserveNullAndEmptyArrays": True}},
-        ]
+        pipeline = []
 
+        # 🔐 Role-based filter
         if role == 'agent':
             pipeline.append({
                 "$match": {
-                    "room.widget_id": {"$in": assigned_widgets}
+                    "widget_id": {"$in": assigned_widgets}
                 }
             })
 
         pipeline += [
+            {"$sort": {"created_at": DESCENDING}},
+
+            # 🔗 Join widget info
             {
                 "$lookup": {
                     "from": "widgets",
-                    "localField": "room.widget_id",
+                    "localField": "widget_id",
                     "foreignField": "widget_id",
                     "as": "widget"
                 }
             },
             {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
+
+            # 🧮 Get last message, last timestamp, total messages from messages array
+            {
+                "$addFields": {
+                    "total_messages": { "$size": { "$ifNull": ["$messages", []] } },
+                    "last_message_obj": {
+                        "$arrayElemAt": [
+                            { "$slice": ["$messages", -1] },
+                            0
+                        ]
+                    }
+                }
+            },
+
+            # 🔗 Lookup agent details from admin collection
+            {
+                "$lookup": {
+                    "from": "admins",
+                    "localField": "assigned_agent",
+                    "foreignField": "admin_id",
+                    "as": "agent"
+                }
+            },
+            {"$unwind": {"path": "$agent", "preserveNullAndEmptyArrays": True}},
+
             {
                 "$project": {
-                    "room_id": "$_id",
-                    "last_message": 1,
-                    "last_timestamp": 1,
+                    "_id": 0,
+                    "room_id": 1,
+                    "contact_id": 1,
+                    "assigned_agent": 1,
+                    "ip": "$user_location.user_ip",
+                    "widget_id": 1,
+                    "is_active": 1,
+                    "created_at": 1,
+                    "updated_at": 1,
+                    "user_location": 1,
                     "total_messages": 1,
+
+                    "last_message": "$last_message_obj.message",
+                    "last_timestamp": "$last_message_obj.timestamp",
+
                     "widget": {
                         "widget_id": "$widget.widget_id",
                         "name": "$widget.name",
                         "is_active": "$widget.is_active",
                         "created_at": "$widget.created_at"
+                    },
+
+                    "agent": {
+                        "admin_id": "$agent.admin_id",
+                        "name": "$agent.name",
+                        "email": "$agent.email",
+                        "role": "$agent.role",
+                        "is_online": "$agent.is_online",
+                        "organization": "$agent.organization"
                     }
                 }
             },
-            {"$sort": {"last_timestamp": DESCENDING}}
+
+            { "$sort": { "last_timestamp": DESCENDING } }
         ]
 
-        conversations = list(collection.aggregate(pipeline))
+        results = list(room_collection.aggregate(pipeline))
 
-        for convo in conversations:
-            if isinstance(convo.get('last_timestamp'), datetime):
-                convo['last_timestamp'] = convo['last_timestamp'].isoformat()
-            if not convo.get('widget'):
-                convo['widget'] = {
-                    'widget_id': '',
-                    'name': 'No Widget',
-                    'is_active': False,
-                    'created_at': ''
-                }
-            elif isinstance(convo['widget'].get('created_at'), datetime):
-                convo['widget']['created_at'] = convo['widget']['created_at'].isoformat()
+        # 🧽 Format datetime fields
+        for room in results:
+            for key in ['created_at', 'updated_at', 'last_timestamp']:
+                if key in room and isinstance(room[key], datetime):
+                    room[key] = room[key].isoformat()
+
+            if room.get("widget") and isinstance(room["widget"].get("created_at"), datetime):
+                room["widget"]["created_at"] = room["widget"]["created_at"].isoformat()
 
         return JsonResponse({
-            "conversations": conversations,
-            "total_count": len(conversations)
+            "rooms": results,
+            "total_count": len(results)
         }, status=200)
 
     except Exception as e:
         return JsonResponse({
-            "error": f"Error fetching conversations: {str(e)}",
-            "conversations": [],
+            "error": f"Error fetching rooms: {str(e)}",
+            "rooms": [],
             "total_count": 0
         }, status=500)
-
 
 
 

@@ -486,6 +486,7 @@ from wish_bot.db import (
     get_trigger_collection,
     insert_with_timestamps,
     get_contact_collection,
+    get_admin_collection,
 )
 from utils.redis_client import redis_client
 from asgiref.sync import sync_to_async
@@ -784,8 +785,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
         # Save contact information
         try:
             contact_collection = await sync_to_async(get_contact_collection)()
+            
+            room_collection = await sync_to_async(get_room_collection)()
+            room = await sync_to_async(lambda: room_collection.find_one({'room_id': self.room_name}))()
+            contact_id = room.get('contact_id') if room and room.get('contact_id') else generate_contact_id()
+
+            
             contact_doc = {
-                'contact_id': generate_contact_id(),
+                'contact_id': contact_id,
                 'room_id': self.room_name,
                 'name': name,
                 'email': email,
@@ -800,6 +807,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             doc = {
                 'message_id': message_id,
                 'room_id': self.room_name,
+                'contact_id': contact_id,
                 'sender': self.user,
                 'message': message,
                 'file_url': '',
@@ -818,6 +826,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 {
                     'type': 'chat_message',
                     'message': message,
+                    'contact_id': contact_id,
                     'sender': self.user,
                     'message_id': message_id,
                     'file_url': '',
@@ -840,20 +849,42 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }))
 
     async def handle_new_message(self, data, collection):
+        assigned_agent_id = None
         try:
             message_id = data.get('message_id') or generate_room_id()
             timestamp = datetime.utcnow()
+            contact_id = data.get('contact_id') or generate_contact_id()
+            if not contact_id:
+                print("[ERROR] No contact_id provided, cannot handle new message")
+                return
             sender = data.get('sender', self.user)
             message = data.get('message', '')
             file_url = data.get('file_url', '')
             file_name = data.get('file_name', '')
+            
+            # Initialize display_sender_name with the original sender
+            display_sender_name = sender
+            
+            if sender == 'agent':
+                room_collection = await sync_to_async(get_room_collection)()
+                room = await sync_to_async(lambda: room_collection.find_one({'room_id': self.room_name}))()
+                assigned_agent_id = room.get('assigned_agent') if room else None
 
-            print(f"[DEBUG] Handling new message from {sender}: {message[:50]}...")
+            if assigned_agent_id:
+                admin_collection = await sync_to_async(get_admin_collection)()
+                agent_doc = await sync_to_async(lambda: admin_collection.find_one({'admin_id': assigned_agent_id}))()
+                agent_name = agent_doc.get('name') if agent_doc else 'Agent'
+                sender = agent_name
+            else:
+                sender = 'Agent'
+
+            print(f"[DEBUG] Handling new message from {display_sender_name}: {message[:50]}...")
 
             doc = {
                 'message_id': message_id,
                 'room_id': self.room_name,
-                'sender': sender,
+                'contact_id': contact_id,
+                'sender': display_sender_name,
                 'message': message,
                 'file_url': file_url,
                 'file_name': file_name,
@@ -869,7 +900,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 {
                     'type': 'chat_message',
                     'message': message,
-                    'sender': sender,
+                    'contact_id': contact_id,
+                    'sender': display_sender_name,
                     'message_id': message_id,
                     'file_url': file_url,
                     'file_name': file_name,
@@ -908,6 +940,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
             print(f"[ERROR] Error in handle_new_message: {e}")
             import traceback
             traceback.print_exc()
+            
+    async def agent_assigned(self, event):
+        """Handle agent assignment notification"""
+        try:
+            await self.send(text_data=json.dumps({
+                'type': 'agent_assigned',
+                'agent_name': event['agent_name'],
+                'agent_id': event['agent_id'],
+                'message': event['message'],
+                'timestamp': datetime.utcnow().isoformat()
+            }))
+        except Exception as e:
+            print(f"[ERROR] Error in agent_assigned: {e}")
 
     async def send_chat_history(self):
         try:
@@ -929,7 +974,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     'file_url': msg.get('file_url', ''),
                     'file_name': msg.get('file_name', ''),
                     'timestamp': msg.get('timestamp', ''),
-                    'status': 'history'
+                    'status': 'history',
+                    'contact_id': msg.get('contact_id', '')
                 }))
         except Exception as e:
             print(f"[ERROR] Error sending chat history: {e}")
@@ -960,7 +1006,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'file_name': event.get('file_name', ''),
                 'timestamp': event['timestamp'],
                 'status': 'delivered',
-                'suggested_replies': event.get('suggested_replies', [])
+                'suggested_replies': event.get('suggested_replies', []),
+                'contact_id': event.get('contact_id', '')
             }))
         except Exception as e:
             print(f"[ERROR] Error in chat_message: {e}")
@@ -982,14 +1029,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'message_id': event['message_id'],
             'status': 'seen',
             'sender': event['sender'],
-            'timestamp': event['timestamp']
+            'timestamp': event['timestamp'],
+            'contact_id': event.get('contact_id', '')
         }))
 
     async def show_form_signal(self, event):
         try:
             print(f"[DEBUG] Sending show form signal to client: {event}")
             await self.send(text_data=json.dumps({
-                'show_form': event['show_form'],
+                'show_form': event['show_form'],  
                 'form_type': event['form_type']
             }))
         except Exception as e:

@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .views import ContactListCreateView, ContactRetrieveUpdateDeleteView,AssignAgentToRoom, DeactivateRoom, AgentAnalytics, ExportChatHistoryAPIView
+from .views import ContactListCreateView, ContactRetrieveUpdateDeleteView, DeactivateRoom, AgentAnalytics, ExportChatHistoryAPIView
 from .views import AddAgentView,EditAgentAPIView,DeleteAgentAPIView,AgentDetailAPIView,AgentFeedbackList
 
 urlpatterns = [
@@ -10,7 +10,7 @@ urlpatterns = [
     path('agents/<str:agent_id>/edit/', EditAgentAPIView.as_view(), name='edit-agent'),
     path('agents/<str:agent_id>/delete/', DeleteAgentAPIView.as_view(), name='delete-agent'),
     path('agent/<str:agent_id>/', AgentDetailAPIView.as_view(), name='agent-detail'),
-    path('assign-agent/', AssignAgentToRoom.as_view(), name='assign-agent'),
+    # path('assign-agent/', AssignAgentToRoom.as_view(), name='assign-agent'),
     path('deactivate-room/', DeactivateRoom.as_view(), name='deactivate-room'),
     # Agent Analytics URLs
     path('agent-analytics/<str:agent_name>/', AgentAnalytics.as_view(), name='agent-analytics'),

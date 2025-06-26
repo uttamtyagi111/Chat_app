@@ -233,7 +233,7 @@
 
     <script>
         const roomId = "{{ room_id }}";
-        const currentUser = "Agent";
+        const currentUser = "{{ agent_name }}";
         const socket = new WebSocket(`ws://${window.location.host}/ws/chat/${roomId}/?agent=true`);
         const chatBox = document.getElementById("chat-box");
         const typingIndicator = document.getElementById("typing-indicator");

@@ -97,6 +97,6 @@ def role_required(roles):
     return decorator
 
 # Shortcuts
-admin_required = role_required(['agent'])
+agent_required = role_required(['agent'])
 superadmin_required = role_required(['superadmin'])
-admin_or_superadmin_required = role_required(['admin', 'superadmin'])
+agent_or_superadmin_required = role_required(['agent', 'superadmin'])

@@ -2,7 +2,7 @@ from django.urls import path
 from chat import views
 from django.conf import settings
 from django.conf.urls.static import static
-from chat.views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView,UserChatAPIView,RoomListAPIView,RoomDetailAPIView
+from chat.views import UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView,UserChatAPIView,RoomListAPIView,RoomDetailAPIView, TestAgentAssignView
 
 urlpatterns = [
     path('rooms/', RoomListAPIView.as_view(), name='room-list'),
@@ -18,7 +18,7 @@ urlpatterns = [
     path('widget/<str:widget_id>/delete/', views.delete_widget, name='delete_widget'),  # DELETE: Delete a widget
     path('direct-chat/<str:widget_id>/', views.direct_chat, name='direct_chat'),
     path('user-chat/', UserChatAPIView.as_view(), name='user_chat'),
-    path('agent-chat/<str:room_id>/', views.agent_chat, name='agent_chat'),
+    path('agent-chat/<str:room_id>/', TestAgentAssignView.as_view(), name='agent_chat'),
     path('websocket-documentation/', views.websocket_documentation, name='websocket_documentation'),
     path('user-chat/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
     path('agent-chat/<str:room_id>/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),

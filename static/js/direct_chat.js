@@ -1,161 +1,306 @@
 // Full widget JS with:
-// - fixed center image as chat background
+// - fixed center image as chat background (with adjustable opacity)
 // - scrollable messages
 // - emoji picker
 // - file upload
 // - user message broadcasting retained
+// - Dynamic input box resizing
+// - WhatsApp-like send button, emoji, and file attachment positioning
+// - Send button integrated inside the text input box
 
 (function () {
     const CHAT_LOG_PREFIX = "[💬 ChatWidget]";
 
+    // Ensure main function runs after the DOM is fully loaded
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", main);
     } else {
         main();
     }
 
-    function injectStyles() {
-        const style = document.createElement("style");
-        style.innerHTML = `
-            body {
-                margin: 0;
-                padding: 0;
-                background-color: #f4f4f4;
-            }
+function injectStyles() {
+    const style = document.createElement("style");
+    style.innerHTML = `
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0; /* Remove body padding to allow fixed positioning of chat container */
+            background-color: #f4f4f4;
+            /* No need for body flex centering when chat container is fixed */
+        }
 
-            #chat-container {
-                max-width: 800px;
-                margin: 0 auto;
-                height: 90vh;
-                border: 1px solid #ccc;
-                border-radius: 8px;
-                background: white;
-                display: flex;
-                flex-direction: column;
-                position: relative;
-                overflow: hidden;
-                box-shadow: 0 0 8px rgba(0, 0, 0, 0.1);
-            }
+        #chat-container {
+            max-width: 800px;
+            width: min(800px, 90vw); /* Responsive width, capped at 800px */
+            height: 90vh; /* Fixed height relative to viewport */
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background: white; /* Base background for the container */
+            display: flex;
+            flex-direction: column;
+            position: fixed; /* Makes the chat container fixed on the screen */
+            top: 50%; /* Center vertically */
+            left: 50%; /* Center horizontally */
+            transform: translate(-50%, -50%); /* Adjust for exact centering */
+            overflow: hidden; /* Hide any container-level scrollbars */
+            box-shadow: 0 0 8px rgba(0, 0, 0, 0.1);
+            z-index: 1000; /* Ensure it's on top of other page content */
+        }
 
-            #chat-messages {
-                flex: 1;
-                padding: 20px;
-                overflow-y: auto;
-                background: url('https://emailbulkshoot.s3.ap-southeast-2.amazonaws.com/assests+for+Email+Automation/Techserve%404x.png') no-repeat center center;
-                background-size: contain;
-            }
+        #chat-header {
+            padding: 15px 20px;
+            background-color: #075E54; /* WhatsApp header green */
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
+            flex-shrink: 0; /* Prevent header from shrinking */
+        }
 
-            .bubble-wrapper {
-                display: flex;
-                margin: 8px;
-                clear: both;
-            }
-            .bubble-wrapper.user {
-                justify-content: flex-end;
-            }
-            .bubble-wrapper.agent {
-                justify-content: flex-start;
-            }
-            .bubble-wrapper.system {
-                justify-content: center;
-            }
+        #chat-messages {
+            flex: 1; /* Allows messages to take up available space and push controls to bottom */
+            padding: 10px 15px;
+            overflow-y: auto; /* Enables vertical scrolling for messages ONLY */
+            /* Background image with reduced opacity overlay, fixed relative to viewport */
+            background:
+                linear-gradient(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.4)),
+                url('https://emailbulkshoot.s3.ap-southeast-2.amazonaws.com/assests+for+Email+Automation/Techserve%404x.png') no-repeat center center;
+            background-size: contain;
+            background-attachment: fixed; /* VERY IMPORTANT: Makes background image fixed relative to viewport */
+            display: flex;
+            flex-direction: column; /* Messages stack vertically */
+        }
 
-            .message {
-                max-width: 75%;
-            }
+        .bubble-wrapper {
+            display: flex;
+            margin: 8px 0;
+            clear: both;
+            width: 100%;
+        }
+        .bubble-wrapper.user {
+            justify-content: flex-end;
+        }
+        .bubble-wrapper.agent {
+            justify-content: flex-start;
+        }
+        .bubble-wrapper.system {
+            justify-content: center;
+        }
 
-            .bubble {
-                padding: 10px 14px;
-                border-radius: 16px;
-                position: relative;
-                box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-                word-wrap: break-word;
-            }
+        .message {
+            max-width: 75%;
+            margin-bottom: 2px;
+        }
 
-            .bubble-content {
-                font-size: 14px;
-            }
+        .bubble {
+            padding: 10px 12px;
+            border-radius: 8px;
+            position: relative;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.08);
+            word-wrap: break-word;
+        }
 
-            .timestamp {
-                font-size: 11px;
-                text-align: right;
-                margin-top: 5px;
-                opacity: 0.5;
-            }
+        .bubble-content {
+            font-size: 14px;
+            line-height: 1.4;
+        }
 
-            .message.user .bubble {
-                background-color: #007bff;
-                color: white;
-                border-bottom-right-radius: 0;
-            }
-            .message.agent .bubble {
-                background-color: #e7f6e7;
-                color: black;
-                border-bottom-left-radius: 0;
-            }
-            .message.system .bubble {
-                background-color: #fff3cd;
-                color: #856404;
-                border-radius: 12px;
-            }
+        .timestamp {
+            font-size: 10px;
+            text-align: right;
+            margin-top: 4px;
+            opacity: 0.6;
+            color: #555;
+        }
 
-            #chat-controls {
-                display: flex;
-                gap: 8px;
-                padding: 10px;
-                border-top: 1px solid #ddd;
-                background-color: #f9f9f9;
-            }
+        /* WhatsApp-like colors */
+        .message.user .bubble {
+            background-color: #DCF8C6; /* Light green for user messages */
+            color: #111;
+            border-bottom-right-radius: 2px; /* Sharp corner for user */
+        }
 
-            #chat-input {
-                flex: 1;
-                padding: 10px;
-                border-radius: 5px;
-                border: 1px solid #ccc;
-            }
+        .message.agent .bubble {
+            background-color: #FFFFFF; /* White for agent messages */
+            border: 1px solid #ECE5DD; /* Light border */
+            color: #000;
+            border-bottom-left-radius: 2px; /* Sharp corner for agent */
+        }
 
-            #emoji-button,
-            #file-button,
-            #send-button {
-                padding: 0 12px;
-                background: white;
-                border: 1px solid #ccc;
-                border-radius: 5px;
-                cursor: pointer;
-            }
+        .message.system .bubble {
+            background-color: #E0F2F1; /* Light teal for system messages */
+            color: #00796B;
+            border-radius: 12px;
+            text-align: center;
+            font-style: italic;
+        }
 
-            #emoji-picker {
-                position: absolute;
-                bottom: 60px;
-                left: 10px;
-                background: white;
-                border: 1px solid #ccc;
-                padding: 5px;
-                display: none;
-                z-index: 10;
-                border-radius: 6px;
-            }
-        `;
-        document.head.appendChild(style);
-    }
+        #chat-controls {
+            display: flex;
+            align-items: flex-end; /* Align items to the bottom */
+            padding: 8px 10px;
+            border-top: 1px solid #ddd;
+            background-color: #f0f0f0; /* Lighter background for controls */
+            position: relative;
+            flex-shrink: 0; /* Prevent controls from shrinking */
+        }
 
-    function appendEmojiPicker(input) {
-        const picker = document.createElement('div');
+        /* Wrapper for the input field and the send button */
+        .input-area-wrapper {
+            flex: 1; /* Takes remaining space in chat-controls */
+            position: relative; /* For positioning the send button */
+            display: flex; /* To contain input and button */
+            align-items: flex-end; /* Align contents to bottom */
+            background-color: white; /* Matches input field background */
+            border-radius: 20px; /* Rounded corners for the entire input area */
+            border: 1px solid #ccc; /* Border for the entire input area */
+            margin-right: 8px; /* Space from emoji/file buttons */
+            overflow: hidden; /* Ensure button stays within bounds if positioned near edge */
+        }
+
+        #chat-input {
+            flex: 1; /* Input takes up most space within the wrapper */
+            padding: 10px 45px 10px 15px; /* Add right padding for the button */
+            border: none; /* Remove individual border, wrapper handles it */
+            border-radius: 0; /* Remove individual border-radius */
+            background: transparent; /* Transparent background, wrapper provides color */
+            min-height: 20px;
+            max-height: 120px; /* Max height before scrollbar appears */
+            resize: none; /* Disable manual resize */
+            overflow-y: auto; /* Enable scrollbar when content exceeds max-height */
+            font-size: 15px;
+            line-height: 1.4;
+        }
+
+        #send-button {
+            position: absolute;
+            right: 8px; /* Position from the right edge of the wrapper */
+            bottom: 8px; /* Position from the bottom edge of the wrapper */
+            width: 32px; /* Smaller, icon-like size */
+            height: 32px;
+            background-color: #075E54; /* WhatsApp send button green */
+            color: white;
+            border: none;
+            border-radius: 50%; /* Still circular, but smaller */
+            font-size: 18px; /* Smaller icon */
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0; /* Prevent shrinking */
+            padding: 0; /* Remove default padding */
+        }
+        #send-button:hover {
+            background-color: #054C44;
+        }
+
+        #emoji-button,
+        #file-button {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 38px; /* Icon button size */
+            height: 38px;
+            border-radius: 50%;
+            background: #f0f0f0; /* Match controls background */
+            border: none;
+            cursor: pointer;
+            font-size: 20px;
+            color: #555;
+            margin-right: 8px;
+            flex-shrink: 0;
+        }
+        #emoji-button:hover,
+        #file-button:hover {
+            background-color: #e0e0e0;
+        }
+
+        #emoji-picker {
+            position: absolute;
+            bottom: 65px; /* Position above the chat controls */
+            right: 10px; /* Align with the right side */
+            background: white;
+            border: 1px solid #ccc;
+            padding: 10px;
+            display: none; /* Initially hidden, to be toggled by JS */
+            z-index: 10;
+            border-radius: 6px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            grid-template-columns: repeat(auto-fill, minmax(30px, 1fr)); /* For a nice emoji grid when visible */
+            gap: 5px;
+        }
+        #emoji-picker span {
+            cursor: pointer;
+            font-size: 22px;
+            text-align: center;
+            padding: 3px;
+            border-radius: 3px;
+        }
+        #emoji-picker span:hover {
+            background-color: #f0f0f0;
+        }
+
+        /* Form styling (optional, adjust as needed) */
+        #chat-form {
+            padding: 20px;
+            border-top: 1px solid #eee;
+            background-color: #f8f8f8;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex-shrink: 0; /* Prevent form from shrinking */
+        }
+        #chat-form label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: block;
+        }
+        #chat-form input[type="text"],
+        #chat-form input[type="email"] {
+            width: calc(100% - 22px);
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        #form-submit {
+            padding: 10px 20px;
+            background-color: #25D366; /* WhatsApp green for submit */
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            align-self: flex-end;
+        }
+        #form-submit:hover {
+            background-color: #1DA851;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+    // Pass chatControls to appendEmojiPicker for correct positioning
+    function appendEmojiPicker(input, chatControls) {
+        const picker = document.createElement("div");
         picker.id = "emoji-picker";
-        const emojis = ["😀", "😂", "😎", "👍", "🎉", "❤️", "🤖"];
-        emojis.forEach(e => {
+        const emojis = [
+            "😀", "😂", "😎", "👍", "🎉", "❤️", "🤖", "👋", "👏", "🔥",
+            "💡", "🤔", "🥳", "👍", "👎", "👌", "🙏", "💻", "📱", "✉️",
+            "📞", "⚙️", "📈", "📊", "📆", "🔒", "🔓",
+        ]; // More emojis
+        emojis.forEach((e) => {
             const span = document.createElement("span");
             span.textContent = e;
-            span.style.cursor = "pointer";
-            span.style.fontSize = "18px";
-            span.style.margin = "5px";
             span.onclick = () => {
                 input.value += e;
+                input.dispatchEvent(new Event("input")); // Trigger input event for resize
                 picker.style.display = "none";
             };
             picker.appendChild(span);
         });
-        document.body.appendChild(picker);
+        chatControls.appendChild(picker); // Append picker to chat-controls for better positioning
         return picker;
     }
 
@@ -163,10 +308,17 @@
         inputElement.addEventListener("change", () => {
             const file = inputElement.files[0];
             if (file) {
-                const msgId = `msg-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-                const text = `📎 ${file.name}`;
-                socket.send(JSON.stringify({ sender: "User", message: text, message_id: msgId }));
+                const msgId = `msg-${Date.now()}-${Math.random()
+                    .toString(36)
+                    .substring(2, 8)}`;
+                const text = `📎 ${file.name} (${(file.size / 1024).toFixed(
+                    2
+                )} KB)`; // Include file size
+                socket.send(
+                    JSON.stringify({ sender: "User", message: text, message_id: msgId })
+                );
                 appendMessage("User", text, "user", msgId);
+                inputElement.value = null; // Clear file input
             }
         });
     }
@@ -174,23 +326,27 @@
     function main() {
         console.group(`${CHAT_LOG_PREFIX} Initialization`);
 
-        injectStyles();  // ✅ Inject bubble CSS
+        injectStyles(); // Call the function to inject all the CSS
 
         let scriptSrc;
         const scripts = document.getElementsByTagName("script");
-        const script = Array.from(scripts).find(s => s.src.includes("direct_chat.js"));
+        const script = Array.from(scripts).find((s) =>
+            s.src.includes("direct_chat.js")
+        );
 
         if (script) {
             scriptSrc = script.src;
             console.log("📦 Script loaded from:", scriptSrc);
         } else {
-            console.error(`${CHAT_LOG_PREFIX} ❌ direct_chat.js script tag not found`);
+            console.error(
+                `${CHAT_LOG_PREFIX} ❌ direct_chat.js script tag not found`
+            );
             console.groupEnd();
             return;
         }
 
-        const urlParams = new URLSearchParams(scriptSrc.split('?')[1]);
-        const widgetId = urlParams.get('widget_id');
+        const urlParams = new URLSearchParams(scriptSrc.split("?")[1]);
+        const widgetId = urlParams.get("widget_id");
 
         if (!widgetId) {
             console.error(`${CHAT_LOG_PREFIX} ❌ widget_id not found in script URL`);
@@ -216,7 +372,74 @@
             return;
         }
 
-        console.log("✅ Required DOM elements found");
+        // Replace the existing h2 with a new header for WhatsApp look
+        const existingH2 = chatContainer.querySelector('h2');
+        if (existingH2) {
+            existingH2.remove();
+        }
+        const chatHeader = document.createElement("div");
+        chatHeader.id = "chat-header";
+        chatHeader.textContent = "Chat with Us"; // Or a dynamic title
+        chatContainer.insertBefore(chatHeader, chatMessages);
+
+
+        // Create chat controls container (the overall bar at the bottom)
+        const chatControls = document.createElement("div");
+        chatControls.id = "chat-controls";
+        chatContainer.appendChild(chatControls); // Append to main container
+
+        // Create emoji button
+        const emojiButton = document.createElement("button");
+        emojiButton.id = "emoji-button";
+        emojiButton.innerHTML = "😀"; // Emoji icon
+        chatControls.appendChild(emojiButton); // Append to chatControls
+
+        // Create file button
+        const fileButton = document.createElement("button");
+        fileButton.id = "file-button";
+        fileButton.innerHTML = "📎"; // Paperclip icon
+        chatControls.appendChild(fileButton); // Append to chatControls
+
+        // Create a wrapper for the input and send button to position send button inside
+        const inputAreaWrapper = document.createElement("div");
+        inputAreaWrapper.className = "input-area-wrapper"; // Use a class for this
+        chatControls.appendChild(inputAreaWrapper); // Append to chatControls
+
+        // Move the original input and send button into this new wrapper
+        inputAreaWrapper.appendChild(input);
+        inputAreaWrapper.appendChild(sendBtn);
+
+        // Create and append the hidden file input
+        const fileInput = document.createElement("input");
+        fileInput.type = "file";
+        fileInput.id = "file-upload-input";
+        fileInput.style.display = "none";
+        document.body.appendChild(fileInput); // Append to body or a less constrained area if it's hidden anyway
+
+        // Create and append the emoji picker (relative to chatControls, so position within its bounds)
+        const emojiPicker = appendEmojiPicker(input, chatControls);
+
+        // Event listeners for emoji and file buttons
+        emojiButton.addEventListener("click", () => {
+            emojiPicker.style.display =
+                emojiPicker.style.display === "grid" ? "none" : "grid"; // Toggle grid display
+        });
+
+        fileButton.addEventListener("click", () => {
+            fileInput.click(); // Trigger click on hidden file input
+        });
+
+        // Dynamic input height adjustment
+        input.addEventListener("input", () => {
+            input.style.height = "auto"; // Reset height to recalculate
+            input.style.height = input.scrollHeight + "px";
+            chatMessages.scrollTop = chatMessages.scrollHeight; // Scroll to bottom when input expands
+        });
+        // Initial adjustment on load
+        input.style.height = input.scrollHeight + "px";
+
+
+        console.log("✅ Required DOM elements found and structured");
         console.groupEnd();
 
         let socket;
@@ -226,15 +449,17 @@
 
         console.groupCollapsed(`${CHAT_LOG_PREFIX} Fetching IP`);
         fetch("https://api.ipify.org?format=json")
-            .then(res => res.json())
-            .then(data => {
+            .then((res) => res.json())
+            .then((data) => {
                 console.log("🌐 Detected IP:", data.ip);
                 initializeChat(data.ip);
                 console.groupEnd();
             })
-            .catch(err => {
+            .catch((err) => {
                 console.error("❌ IP Fetch Error:", err);
-                appendSystemMessage("Unable to get your IP address. Chat may not function.");
+                appendSystemMessage(
+                    "Unable to get your IP address. Chat may not function."
+                );
                 console.groupEnd();
             });
 
@@ -251,25 +476,27 @@
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ widget_id: widgetId, ip }),
             })
-                .then(res => {
+                .then((res) => {
                     if (!res.ok) {
-                        return res.json().then(data => {
+                        return res.json().then((data) => {
                             console.error("❌ Room creation failed:", data);
                             throw new Error(data.error || "Room creation failed");
                         });
                     }
                     return res.json();
                 })
-                .then(data => {
+                .then((data) => {
                     roomId = data.room_id;
                     localStorage.setItem("chat_room_id", roomId);
                     console.log("✅ Room created with ID:", roomId);
                     connectWebSocket(roomId);
                     console.groupEnd();
                 })
-                .catch(err => {
+                .catch((err) => {
                     console.error("❌ Chat Init Failed:", err);
-                    appendSystemMessage("Chat failed to start. Please refresh or try again.");
+                    appendSystemMessage(
+                        "Chat failed to start. Please refresh or try again."
+                    );
                     console.groupEnd();
                 });
         }
@@ -277,17 +504,20 @@
         function connectWebSocket(roomId) {
             socket = new WebSocket(`${WIDGET_CONFIG.wsUrl}${roomId}/`);
 
-            socket.onopen = () => console.log(`${CHAT_LOG_PREFIX} 🔌 WebSocket connected`);
-            socket.onclose = e => {
+            socket.onopen = () => {
+                console.log(`${CHAT_LOG_PREFIX} 🔌 WebSocket connected`);
+                broadcastAttachment(fileInput, socket); // Initialize file attachment broadcasting
+            };
+            socket.onclose = (e) => {
                 console.warn(`${CHAT_LOG_PREFIX} ⚠️ WebSocket closed:`, e);
                 appendSystemMessage("Chat disconnected. Please refresh.");
             };
-            socket.onerror = e => {
+            socket.onerror = (e) => {
                 console.error(`${CHAT_LOG_PREFIX} 🚨 WebSocket error:`, e);
                 appendSystemMessage("WebSocket connection error.");
             };
 
-            socket.onmessage = event => {
+            socket.onmessage = (event) => {
                 console.groupCollapsed(`${CHAT_LOG_PREFIX} 📩 New message received`);
                 console.log("Raw:", event.data);
 
@@ -303,30 +533,40 @@
                         formDiv.style.display = "none";
                         input.disabled = false;
                         sendBtn.disabled = false;
+                        emojiButton.disabled = false; // Re-enable emoji button
+                        fileButton.disabled = false; // Re-enable file button
                         appendSystemMessage("Form submitted. You can now chat.");
                     } else if (data.message) {
                         const sender = data.sender;
                         let className = "agent";
                         if (sender.toLowerCase() === "user") className = "user";
-                        else if (sender.toLowerCase() === "wish-bot" || sender.toLowerCase() === "system") className = "system";
+                        else if (
+                            sender.toLowerCase() === "wish-bot" ||
+                            sender.toLowerCase() === "system"
+                        )
+                            className = "system";
 
                         appendMessage(sender, data.message, className, data.message_id);
 
                         if (sender.toLowerCase() === "system") {
                             systemMessageCount++;
                             if (systemMessageCount === 2) {
-                                formDiv.style.display = "block";
+                                formDiv.style.display = "flex"; // Use flex for form layout
                                 input.disabled = true;
                                 sendBtn.disabled = true;
+                                emojiButton.disabled = true; // Disable emoji button
+                                fileButton.disabled = true; // Disable file button
                             }
                         }
 
                         if (sender.toLowerCase() !== "user") {
-                            socket.send(JSON.stringify({
-                                status: "seen",
-                                message_id: data.message_id,
-                                sender: "User"
-                            }));
+                            socket.send(
+                                JSON.stringify({
+                                    status: "seen",
+                                    message_id: data.message_id,
+                                    sender: "User",
+                                })
+                            );
                         }
                     }
                 } catch (e) {
@@ -337,13 +577,17 @@
         }
 
         function appendMessage(sender, message, className, messageId) {
+            // Prevent duplicate messages if already rendered (e.g., from echo)
             if (document.getElementById(`msg-${messageId}`)) return;
 
             const div = document.createElement("div");
             div.className = `message ${className}`;
             div.id = `msg-${messageId}`;
 
-            const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            const time = new Date().toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+            });
 
             div.innerHTML = `
                 <div class="bubble">
@@ -356,7 +600,7 @@
             wrapper.className = `bubble-wrapper ${className}`;
             wrapper.appendChild(div);
             chatMessages.appendChild(wrapper);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
+            chatMessages.scrollTop = chatMessages.scrollHeight; // Scroll to bottom
         }
 
         function appendSystemMessage(msg) {
@@ -374,35 +618,44 @@
         }
 
         sendBtn.addEventListener("click", sendMessage);
-        input.addEventListener("keypress", e => {
-            if (e.key === "Enter" && !input.disabled) sendMessage();
+        input.addEventListener("keypress", (e) => {
+            if (e.key === "Enter" && !input.disabled && !e.shiftKey) {
+                // Allow Shift+Enter for new line in input
+                e.preventDefault(); // Prevent default Enter behavior (new line)
+                sendMessage();
+            }
         });
 
         function sendMessage() {
             const text = input.value.trim();
             if (!text || !socket) return;
             const msgId = generateMessageId();
-            socket.send(JSON.stringify({ message: text, sender: "User", message_id: msgId }));
+            socket.send(
+                JSON.stringify({ message: text, sender: "User", message_id: msgId })
+            );
             appendMessage("User", text, "user", msgId);
             input.value = "";
+            input.style.height = "auto"; // Reset height after sending
+            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
         // Optional: Form Handling
         const chatForm = document.createElement("div");
         chatForm.id = "chat-form";
-        chatForm.style.display = "none";
+        chatForm.style.display = "none"; // Hidden by default
         chatForm.innerHTML = `
-            <div class="form-group">
-                <label for="form-name">Name:</label>
-                <input id="form-name" type="text" required placeholder="Your name" />
-            </div>
-            <div class="form-group">
-                <label for="form-email">Email:</label>
-                <input id="form-email" type="email" required placeholder="Your email" />
-            </div>
-            <button id="form-submit" class="submit-btn">Submit</button>
-        `;
-        chatContainer.insertBefore(chatForm, chatMessages.nextSibling);
+                <div class="form-group">
+                    <label for="form-name">Name:</label>
+                    <input id="form-name" type="text" required placeholder="Your name" />
+                </div>
+                <div class="form-group">
+                    <label for="form-email">Email:</label>
+                    <input id="form-email" type="email" required placeholder="Your email" />
+                </div>
+                <button id="form-submit" class="submit-btn">Submit</button>
+            `;
+        // Insert the form before the chat controls section
+        chatContainer.insertBefore(chatForm, chatControls);
 
         document.getElementById("form-submit")?.addEventListener("click", () => {
             const name = document.getElementById("form-name").value.trim();
@@ -425,11 +678,13 @@
             }
 
             const msgId = generateMessageId();
-            socket.send(JSON.stringify({
-                sender: "User",
-                form_data: { name, email },
-                message_id: msgId,
-            }));
+            socket.send(
+                JSON.stringify({
+                    sender: "User",
+                    form_data: { name, email },
+                    message_id: msgId,
+                })
+            );
             appendMessage("User", `Name: ${name}, Email: ${email}`, "user", msgId);
             console.groupEnd();
         });

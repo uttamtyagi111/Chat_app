@@ -1,5 +1,5 @@
 from authentication.utils import jwt_required,superadmin_required
-from wish_bot.db import get_admin_collection, get_room_collection,get_agent_notes_collection
+from wish_bot.db import get_admin_collection, get_room_collection,get_agent_notes_collection,get_contact_collection
 from wish_bot.db import get_widget_collection,insert_with_timestamps
 from wish_bot.db import get_chat_collection
 from datetime import datetime, timedelta
@@ -8,7 +8,7 @@ from django.shortcuts import render
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
-from utils.random_id import generate_room_id,generate_widget_id
+from utils.random_id import generate_room_id,generate_widget_id,generate_contact_id
 import logging
 import uuid
 import json
@@ -586,6 +586,7 @@ class UserChatAPIView(APIView):
 
         widget_collection = get_widget_collection()
         room_collection = get_room_collection()
+        contact_collection = get_contact_collection()  # Assuming contact collection is same as admin collection
 
         widget = widget_collection.find_one({"widget_id": widget_id})
         if not widget:
@@ -596,6 +597,12 @@ class UserChatAPIView(APIView):
         room_id = generate_room_id()
         while room_collection.find_one({'room_id': room_id}):
             room_id = generate_room_id()
+        print(f"[UserChatAPIView] Generated room ID: {room_id}")
+        
+        contact_id = generate_contact_id()
+        while contact_collection.find_one({'contact_id': contact_id}):
+            contact_id = generate_contact_id()
+        print(f"[UserChatAPIView] Generated contact ID: {contact_id}")
             
         print(f"[UserChatAPIView] Creating room with ID: {room_id}")
 
@@ -603,6 +610,7 @@ class UserChatAPIView(APIView):
             'room_id': room_id,
             'widget_id': widget_id,
             'is_active': True,
+            'contact_id': contact_id,
             'created_at': datetime.now(),
             'assigned_agent': None,
             'user_location': {
@@ -988,50 +996,213 @@ class ActiveRoomsAPIView(APIView):
 agent_view for testing with frontend template
 """
 
-def agent_chat(request, room_id):
-    room_collection = get_room_collection()
-    room = room_collection.find_one({'room_id': room_id})
-    if room:
-        room_collection.update_one(
-            {'room_id': room_id},
-            {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with actual agent logic
-        )
-    return render(request, 'chat/agent_chat.html', {'room_id': room_id})
+# def agent_chat(request, room_id):
+#     room_collection = get_room_collection()
+#     room = room_collection.find_one({'room_id': room_id})
+#     if room:
+#         room_collection.update_one(
+#             {'room_id': room_id},
+#             {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with actual agent logic
+#         )
+#     return render(request, 'chat/agent_chat.html', {'room_id': room_id})
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+from wish_bot.db import get_room_collection
+from pymongo.errors import PyMongoError
+from django.shortcuts import render
+import logging
+
+logger = logging.getLogger(__name__)
+
+class TestAgentAssignView(APIView):
+    permission_classes = []  # No auth
+    authentication_classes = []
+
+    @extend_schema(
+        summary="Assign agent to room for testing and render chat UI",
+        responses={
+            200: OpenApiResponse(response={"message": "Agent assigned successfully"}),
+            404: OpenApiResponse(description="Room not found"),
+            500: OpenApiResponse(description="Internal server error")
+        }
+    )
+    def post(self, request, room_id):
+        try:
+            room_collection = get_room_collection()
+
+            room = room_collection.find_one({'room_id': room_id})
+            if not room:
+                return Response({"error": "Room not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            assigned_agent = room.get("assigned_agent")
+            if assigned_agent:
+                agent_info = f"Already assigned to: {assigned_agent}"
+            else:
+                # Assign test agent
+                assigned_agent = "test_agent"
+                room_collection.update_one(
+                    {'room_id': room_id},
+                    {'$set': {'assigned_agent': assigned_agent}}
+                )
+                agent_info = f"Assigned test agent to room {room_id}"
+
+            return render(request, 'chat/agent_chat.html', {
+                'room_id': room_id,
+                'agent_info': agent_info,
+                'agent_name': 'Test Agent'
+            })
+
+        except PyMongoError as e:
+            logger.error(f"MongoDB error: {str(e)}")
+            return Response({"error": "Database error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}")
+            return Response({"error": "Unexpected server error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+# from authentication.permissions import IsAgentOrSuperAdmin
+# from authentication.jwt_auth import JWTAuthentication
+# from drf_spectacular.utils import extend_schema, OpenApiResponse
+# from wish_bot.db import get_room_collection, get_admin_collection
+# from pymongo.errors import PyMongoError
+# import logging
+
+# logger = logging.getLogger(__name__)
 
 # class AgentChatAPIView(APIView):
-#     @swagger_auto_schema(
-#         operation_description="Assign an agent to an existing chat room based on room_id",
-#         manual_parameters=[
-#             openapi.Parameter('room_id', openapi.IN_PATH, description="Room ID so that agent can connect to", type=openapi.TYPE_STRING),
-#         ],
-#         responses={
-#             200: openapi.Response('Agent assigned successfully', schema=openapi.Schema(
-#                 type=openapi.TYPE_OBJECT,
-#                 properties={
-#                     'message': openapi.Schema(type=openapi.TYPE_STRING),
-#                     'room_id': openapi.Schema(type=openapi.TYPE_STRING),
-#                     'assigned_agent': openapi.Schema(type=openapi.TYPE_STRING),
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [IsAgentOrSuperAdmin]
+
+#     @extend_schema(
+#         operation_id="assignAgentToRoom",
+#         summary="Assign an agent to a room (agent assigns self or superadmin assigns another agent)",
+#         request={
+#             "application/json": {
+#                 "type": "object",
+#                 "properties": {
+#                     "agent_id": {"type": "string", "description": "Admin ID of the agent to assign (optional for agents)"},
+#                 },
+#                 "example": {
+#                     "agent_id": "admin_123456"
 #                 }
-#             )),
-#             404: "Room not found"
+#             }
+#         },
+#         responses={
+#             200: OpenApiResponse(response={"message": "Agent assigned successfully"}),
+#             400: OpenApiResponse(description="Bad Request"),
+#             403: OpenApiResponse(description="Forbidden"),
+#             404: OpenApiResponse(description="Room or Agent not found"),
+#             500: OpenApiResponse(description="Internal Server Error")
 #         }
 #     )
 #     def post(self, request, room_id):
-#         room_collection = get_room_collection()
-#         room = room_collection.find_one({'room_id': room_id})
+#         try:
+#             user = request.user
+#             role = user.get("role")
+#             requester_id = user.get("admin_id")
 
-#         if room:
+#             room_collection = get_room_collection()
+#             admin_collection = get_admin_collection()
+
+#             room = room_collection.find_one({"room_id": room_id})
+#             if not room:
+#                 return Response(
+#                     {"error": "Room not found"},
+#                     status=status.HTTP_404_NOT_FOUND
+#                 )
+
+#             # Prevent multiple agents from being assigned
+#             if room.get("assigned_agent"):
+#                 return Response(
+#                     {"error": "Room already has an assigned agent"},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
+
+#             room_widget_id = room.get("widget_id")
+
+#             if role == "agent":
+#                 # Agent can only assign themselves
+#                 agent_doc = admin_collection.find_one({"admin_id": requester_id, "role": "agent"})
+#                 if not agent_doc:
+#                     return Response({"error": "Agent not found"}, status=status.HTTP_404_NOT_FOUND)
+
+#                 if room_widget_id not in agent_doc.get("assigned_widgets", []):
+#                     return Response({"error": "You are not assigned to this widget"}, status=status.HTTP_403_FORBIDDEN)
+
+#                 agent_id = requester_id
+
+#             elif role == "superadmin":
+#                 agent_id = request.data.get("agent_id")
+#                 if not agent_id:
+#                     return Response({"error": "agent_id is required for superadmin"}, status=status.HTTP_400_BAD_REQUEST)
+
+#                 agent_doc = admin_collection.find_one({"admin_id": agent_id, "role": "agent"})
+#                 if not agent_doc:
+#                     return Response({"error": "Agent not found"}, status=status.HTTP_404_NOT_FOUND)
+
+#                 if room_widget_id not in agent_doc.get("assigned_widgets", []):
+#                     return Response({"error": "Agent is not assigned to this widget"}, status=status.HTTP_403_FORBIDDEN)
+
+#             else:
+#                 return Response({"error": "Unauthorized role"}, status=status.HTTP_403_FORBIDDEN)
+
+#             # Assign the agent to the room
 #             room_collection.update_one(
-#                 {'room_id': room_id},
-#                 {'$set': {'assigned_agent': 'Agent 007'}}  # Replace with dynamic agent assignment if needed
+#                 {"room_id": room_id},
+#                 {"$set": {"assigned_agent": agent_id}}
 #             )
+            
+#             # 🆕 NEW: Notify WebSocket clients about agent assignment
+#             agent_name = agent_doc.get('name', 'Agent')
+            
+#             # Import necessary modules for WebSocket notification
+#             from channels.layers import get_channel_layer
+#             from asgiref.sync import async_to_sync
+            
+#             # Send notification to the chat room
+#             channel_layer = get_channel_layer()
+#             room_group_name = f'chat_{room_id}'
+            
+#             # Notify all clients in the room about the agent assignment
+#             async_to_sync(channel_layer.group_send)(
+#                 room_group_name,
+#                 {
+#                     'type': 'agent_assigned',
+#                     'agent_name': agent_name,
+#                     'agent_id': agent_id,
+#                     'message': f"{agent_name} has joined the chat"
+#                 }
+#             )
+
+
 #             return Response({
-#                 'message': 'Agent assigned successfully.',
-#                 'room_id': room_id,
-#                 'assigned_agent': 'Agent 007',
+#                 "message": f"Agent '{agent_doc.get('name')}' assigned to room '{room_id}'",
+#                 "room_id": room_id,
+#                 "assigned_agent": agent_id,
+#                 "agent_name": agent_name
 #             }, status=status.HTTP_200_OK)
-#         else:
-#             return Response({'message': 'Room not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+#         except PyMongoError as e:
+#             logger.error(f"MongoDB Error: {str(e)}")
+#             return Response(
+#                 {"error": f"Database error: {str(e)}"},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
+#         except Exception as e:
+#             logger.error(f"Unexpected Error: {str(e)}")
+#             return Response(
+#                 {"error": f"Unexpected error: {str(e)}"},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
+
+
         
         
 def agent_dashboard(request):
