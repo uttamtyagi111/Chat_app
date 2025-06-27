@@ -3,7 +3,7 @@
 <head>
   <title>Test Chat Widget</title>
   <style>
-        body {
+        {% comment %} body {
             font-family: Arial, sans-serif;
             margin: 20px;
             background-color: #f5f5f5;
@@ -61,7 +61,7 @@
         }
         button:hover {
             background: #0056b3;
-        }
+        } {% endcomment %}
     </style>
   {% load static %}
 </head>
@@ -70,7 +70,7 @@
   <div class="container">
         <h1>IP Whois Information Widget</h1>
         
-        <!-- IP Lookup Form -->
+        {% comment %} <!-- IP Lookup Form -->
         <div class="lookup-form">
             <h3>Lookup IP Address</h3>
             <form method="get">
@@ -174,10 +174,10 @@
                 console.error('Error:', error);
             });
         }
-    </script>
+    </script> {% endcomment %}
 
   <!-- Correct way to include static JS file -->
-  <script src="{% static 'js/chat_widget.js' %}?widget_id=d68d454e-7763" data-theme-color="#28a745"></script>
+  <script src="{% static 'js/chat_widget.js' %}?widget_id=03d5490f-590e" data-theme-color="#28a745"></script>
 </body>
 </html>
 <script>
