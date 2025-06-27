@@ -280,17 +280,32 @@ def create_widget(request):
             "is_active": widget["is_active"],
             "settings": widget["settings"],
             "direct_chat_link": direct_chat_link,
-            "widget_code": generate_widget_code(widget["widget_id"], request),
+            "widget_code": generate_widget_code(widget["widget_id"],
+                request,
+                theme_color=primary_color,
+                logo_url=logo,
+                position=position
+        ),
         }, status=201)
 
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
 
-# Helper function to generate widget code
-def generate_widget_code(widget_id,request):
-    base_domain = "http://localhost:8000" if "localhost" in request.get_host() else "http://208.87.134.149:8003"
-    script_url = f"{base_domain}/static/chat_widget.js?widget_id={widget_id}"
+# Helper function to generate the widget embed code
+def generate_widget_code(widget_id, request, theme_color="#ff6600", logo_url=None, position="right"):
+    # Determine base domain dynamically
+    host = request.get_host()
+    scheme = "https" if request.is_secure() else "http"
+    base_domain = f"{scheme}://{host}"
+
+    # Script source - hosted JS file
+    script_url = f"{base_domain}/static/js/chat_widget_updated.js"
+
+    # Logo fallback
+    if not logo_url:
+        logo_url = f"{base_domain}/static/images/default_logo.png"
+
     return f"""
 <!-- Start of Chat Widget Script -->
 <script type="text/javascript">
@@ -298,8 +313,13 @@ var ChatWidget_API = ChatWidget_API || [], ChatWidget_LoadStart = new Date();
 (function() {{
     var s1 = document.createElement("script"), s0 = document.getElementsByTagName("script")[0];
     s1.async = true;
-    s1.src = "{script_url}";
+    s1.src = "{script_url}?widget_id={widget_id}";
     s1.charset = "UTF-8";
+
+    s1.setAttribute("data-theme-color", "{theme_color}");
+    s1.setAttribute("data-logo-url", "{logo_url}");
+    s1.setAttribute("data-position", "{position}");
+
     s0.parentNode.insertBefore(s1, s0);
 }})();
 </script>

@@ -216,7 +216,7 @@ def request_password_reset(request):
         # Check for recent reset requests (rate limiting)
         recent_reset = get_admin_collection().find_one({
             "email": email,
-            "reset_code_created": {"$gte": datetime.utcnow() - timedelta(minutes=1)}
+            "reset_code_created": {"$gte": datetime.datetime.utcnow() - timedelta(minutes=1)}
         })
         
         if recent_reset:
@@ -226,15 +226,15 @@ def request_password_reset(request):
         
         # Generate reset code with expiration
         reset_code = generate_reset_code()
-        reset_code_expires = datetime.utcnow() + timedelta(minutes=15)  # 15 minutes expiry
-        
+        reset_code_expires = datetime.datetime.utcnow() + timedelta(minutes=15)  # 15 minutes expiry
+
         # Update user with reset code and timestamp
         get_admin_collection().update_one(
             {'_id': user['_id']}, 
             {
                 '$set': {
                     'reset_code': reset_code,
-                    'reset_code_created': datetime.utcnow(),
+                    'reset_code_created': datetime.datetime.utcnow(),
                     'reset_code_expires': reset_code_expires
                 }
             }
@@ -301,7 +301,7 @@ def reset_password(request):
         user = get_admin_collection().find_one({
             'email': email, 
             'reset_code': code,
-            'reset_code_expires': {'$gte': datetime.utcnow()}
+            'reset_code_expires': {'$gte': datetime.datetime.utcnow()}
         })
         
         if not user:
@@ -327,7 +327,7 @@ def reset_password(request):
         get_admin_collection().update_one(
             {'_id': user['_id']},
             {
-                '$set': {'password': hashed_password, 'password_updated_at': datetime.utcnow()},
+                '$set': {'password': hashed_password, 'password_updated_at': datetime.datetime.utcnow()},
                 '$unset': {
                     'reset_code': "", 
                     'reset_code_created': "", 
@@ -369,11 +369,11 @@ def verify_reset_code(request):
         user = get_admin_collection().find_one({
             'email': email,
             'reset_code': code,
-            'reset_code_expires': {'$gte': datetime.utcnow()}
+            'reset_code_expires': {'$gte': datetime.datetime.utcnow()}
         })
         
         if user:
-            time_left = user['reset_code_expires'] - datetime.utcnow()
+            time_left = user['reset_code_expires'] - datetime.datetime.utcnow()
             return JsonResponse({
                 "valid": True,
                 "minutes_left": int(time_left.total_seconds() / 60)

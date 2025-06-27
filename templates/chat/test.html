@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat Widget Test</title>
+</head>
+<body>
+  <h1>Testing Chat Widget</h1>
+
+  <!-- ✅ Drop-in Chat Widget Loader -->
+  <script>
+    (function () {
+      const script = document.createElement("script");
+      script.src = "http://208.87.134.149:8003/static/js/chat_widget.js?widget_id=03d5490f-590e";
+      script.async = true;
+      script.setAttribute("data-theme-color", "#0f62fe");
+      script.setAttribute("data-logo-url", "http://localhost:8000/static/images/default_logo.png");
+      document.body.appendChild(script);
+    })();
+  </script>
+</body>
+</html>
