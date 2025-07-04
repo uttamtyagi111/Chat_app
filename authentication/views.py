@@ -1,6 +1,8 @@
 from utils.email_sender import send_otp_email
 import logging
 from datetime import datetime, timedelta
+from django.conf import settings
+from duo_client import Auth
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 from pymongo.errors import DuplicateKeyError
@@ -72,6 +74,32 @@ def login(request):
             return JsonResponse({"error": "Invalid email format"}, status=400)
     if not user or not verify_password(password, user['password']):
         return JsonResponse({"error": "Invalid credentials"}, status=401)
+    
+    
+    try:
+        duo = Auth(
+            ikey=settings.DUO_IKEY,
+            skey=settings.DUO_SKEY,
+            host=settings.DUO_API_HOSTNAME
+        )
+        username = user.get("duo_username") or user["email"]
+
+        auth_response = duo.auth(
+            username=username,     # Must match a Duo user
+            factor='push',
+            device='auto'
+        )
+
+        if auth_response.get("result") != "allow":
+            return JsonResponse({
+        "error": "Duo authentication failed",
+        "duo_result": auth_response.get("result"),
+        "status_msg": auth_response.get("status_msg"),
+    }, status=401)
+
+    except Exception as e:
+        return JsonResponse({"error": f"Duo error: {str(e)}"}, status=500)
+
 
     payload = {
         'admin_id': user['admin_id'],
