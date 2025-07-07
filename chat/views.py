@@ -331,13 +331,28 @@ def create_widget(request):
             if not widget_collection.find_one({"widget_id": widget_id}):
                 break
 
-        # Final widget document
+        # Generate widget code early (before saving to DB)
+        widget_code = generate_widget_code(
+            widget_id=widget_id,
+            request=request,
+            theme_color=primary_color,
+            logo_url=logo_url,
+            position=position
+        )
+
+        # Determine base domain for embed code
+        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+        direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}/"
+
+        # Final widget document (now includes widget_code)
         widget = {
             "widget_id": widget_id,
             "widget_type": widget_type,
             "name": name,
             "domain": domain,
             "is_active": is_active,
+            "widget_code": widget_code,  # Save widget code to database
+            "direct_chat_link": direct_chat_link,  # Also save direct chat link
             "settings": {
                 "position": position,
                 "primaryColor": primary_color,
@@ -352,10 +367,6 @@ def create_widget(request):
 
         insert_with_timestamps(widget_collection, widget)
 
-        # Determine base domain for embed code
-        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
-        direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}/"
-
         return JsonResponse({
             "widget_id": widget_id,
             "widget_type": widget_type,
@@ -364,15 +375,7 @@ def create_widget(request):
             "is_active": is_active,
             "settings": widget["settings"],
             "direct_chat_link": direct_chat_link,
-            "widget_code": generate_widget_code(
-                widget_id=widget_id,
-                request=request,
-                theme_color=primary_color,
-                # attention_grabber=attention_grabber_url,
-                # enable_attention_grabber=enable_attention_grabber,
-                logo_url=logo_url,
-                position=position
-            ),
+            "widget_code": widget_code,  # Return the generated widget code
         }, status=201)
 
     except Exception as e:
@@ -392,22 +395,184 @@ def generate_widget_code(widget_id, request, theme_color="#ff6600", logo_url=Non
     # Logo fallback
     if not logo_url:
         logo_url = f"{base_domain}/static/images/default_logo.png"
-
+        
     return f"""
 <!-- Start of Chat Widget Script -->
-<script type="text/javascript">
-var ChatWidget_API = ChatWidget_API || {{}}, ChatWidget_LoadStart = new Date();
-(function() {{
-    var s1 = document.createElement("script"), s0 = document.getElementsByTagName("script")[0];
-    s1.async = true;
-    s1.src = "{script_url}?widget_id={widget_id}";
-    s1.charset = "UTF-8";
-    s1.setAttribute("crossorigin", "anonymous");
-    s0.parentNode.insertBefore(s1, s0);
-}})();
-</script>
+<script
+   src="{script_url}?widget_id={widget_id}"></script>
 <!-- End of Chat Widget Script -->
 """
+
+# @csrf_exempt
+# @require_POST
+# @jwt_required
+# @superadmin_required
+# def create_widget(request):
+#     try:
+#         data = request.POST.dict()
+
+#         # Required fields
+#         widget_type = data.get("widget_type")
+#         name = data.get("name")
+#         if not widget_type or not name:
+#             return JsonResponse({"error": "Missing required fields"}, status=400)
+
+#         # Optional fields
+#         domain = data.get("domain", "http://localhost:8000")
+#         is_active = data.get("is_active", "false").lower() == "true"
+
+#         position = data.get("position", "right")
+#         primary_color = data.get("primaryColor", "#10B981")
+#         welcome_message = data.get("welcomeMessage", "Hello! How can we help you?")
+#         offline_message = data.get("offlineMessage", "We're currently offline.")
+#         sound_enabled = data.get("soundEnabled", "true").lower() == "true"
+#         enable_attention_grabber = data.get("enableAttentionGrabber", "false").lower() == "true"
+
+#         # Handle logo upload to S3
+#         logo_url = ""
+#         logo_file = request.FILES.get("logo")
+#         if logo_file:
+#             try:
+#                 s3_client = boto3.client(
+#                     's3',
+#                     aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+#                     aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+#                     region_name=settings.AWS_S3_REGION_NAME
+#                 )
+#                 bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+#                 file_name = f"chat_logos/{uuid.uuid4()}/{logo_file.name}"
+
+#                 s3_client.upload_fileobj(
+#                     logo_file,
+#                     bucket_name,
+#                     file_name,
+#                     ExtraArgs={'ContentType': logo_file.content_type}
+#                 )
+#                 logo_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
+#             except Exception as e:
+#                 logger.error(f"Logo upload failed: {str(e)}", exc_info=True)
+#                 return JsonResponse({'error': f'Failed to upload logo: {str(e)}'}, status=500)
+
+#         # Handle attention grabber (upload or URL)
+#         attention_grabber_file = request.FILES.get("attentionGrabberFile")
+#         attention_grabber_url = data.get("attentionGrabber", "").strip()
+
+#         if attention_grabber_file:
+#             try:
+#                 s3_client = boto3.client(
+#                     's3',
+#                     aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+#                     aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+#                     region_name=settings.AWS_S3_REGION_NAME
+#                 )
+#                 bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+#                 file_name = f"attentionGrabbers/{uuid.uuid4()}/{attention_grabber_file.name}"
+
+#                 s3_client.upload_fileobj(
+#                     attention_grabber_file,
+#                     bucket_name,
+#                     file_name,
+#                     ExtraArgs={'ContentType': attention_grabber_file.content_type}
+#                 )
+#                 attention_grabber_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
+#             except Exception as e:
+#                 logger.error(f"Attention grabber upload failed: {str(e)}", exc_info=True)
+#                 return JsonResponse({'error': f'Failed to upload attention grabber: {str(e)}'}, status=500)
+
+#         # Check for duplicates
+#         widget_collection = get_widget_collection()
+#         if widget_collection.find_one({"widget_type": widget_type, "name": name}):
+#             return JsonResponse({"error": "A widget with this type and name already exists."}, status=400)
+
+#         # Generate unique widget_id
+#         while True:
+#             widget_id = generate_widget_id()
+#             if not widget_collection.find_one({"widget_id": widget_id}):
+#                 break
+
+#         # Final widget document
+#         widget = {
+#             "widget_id": widget_id,
+#             "widget_type": widget_type,
+#             "name": name,
+#             "domain": domain,
+#             "is_active": is_active,
+#             "settings": {
+#                 "position": position,
+#                 "primaryColor": primary_color,
+#                 "logo": logo_url,
+#                 "attentionGrabber": attention_grabber_url,
+#                 "enableAttentionGrabber": enable_attention_grabber,
+#                 "welcomeMessage": welcome_message,
+#                 "offlineMessage": offline_message,
+#                 "soundEnabled": sound_enabled,
+#             }
+#         }
+
+#         insert_with_timestamps(widget_collection, widget)
+
+#         # Determine base domain for embed code
+#         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+#         direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}/"
+
+#         return JsonResponse({
+#             "widget_id": widget_id,
+#             "widget_type": widget_type,
+#             "domain": domain,
+#             "name": name,
+#             "is_active": is_active,
+#             "settings": widget["settings"],
+#             "direct_chat_link": direct_chat_link,
+#             "widget_code": generate_widget_code(
+#                 widget_id=widget_id,
+#                 request=request,
+#                 theme_color=primary_color,
+#                 # attention_grabber=attention_grabber_url,
+#                 # enable_attention_grabber=enable_attention_grabber,
+#                 logo_url=logo_url,
+#                 position=position
+#             ),
+#         }, status=201)
+
+#     except Exception as e:
+#         logger.exception("Error in create_widget")
+#         return JsonResponse({"error": str(e)}, status=500)
+
+
+
+# # Helper function to generate the widget embed code
+# def generate_widget_code(widget_id, request, theme_color="#ff6600", logo_url=None, position="right"):
+#     # Determine base domain dynamically
+#     host = request.get_host()
+#     scheme = "https" if request.is_secure() else "http"
+#     base_domain = f"{scheme}://{host}"
+
+#     # Script source - hosted JS file
+#     script_url = f"{base_domain}/static/js/chat_widget.js"
+
+#     # Logo fallback
+#     if not logo_url:
+#         logo_url = f"{base_domain}/static/images/default_logo.png"
+        
+#     return f"""
+# <!-- Start of Chat Widget Script -->
+# <script
+#    src="{script_url}?widget_id={widget_id}"></script>
+# <!-- End of Chat Widget Script -->
+"""
+# # <script type="text/javascript">
+# # var ChatWidget_API = ChatWidget_API || {{}}, ChatWidget_LoadStart = new Date();
+# # (function() {{
+# #     var s1 = document.createElement("script"), s0 = document.getElementsByTagName("script")[0];
+# #     s1.async = true;
+# #     s1.src = "{script_url}?widget_id={widget_id}";
+# #     s1.charset = "UTF-8";
+# #     s1.setAttribute("crossorigin", "anonymous");
+# #     s0.parentNode.insertBefore(s1, s0);
+# # }})();
+# # </script>
+# # <!-- End of Chat Widget Script -->
+# """
 import logging
 from django.http import JsonResponse
 from django.shortcuts import render
