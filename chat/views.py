@@ -293,7 +293,6 @@ def get_widget(request, widget_id=None):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
-
 @csrf_exempt
 @require_http_methods(["PATCH"])
 @jwt_required
@@ -308,7 +307,17 @@ def update_widget(request, widget_id):
         if not widget:
             return JsonResponse({"error": "Widget not found"}, status=404)
 
-        data = json.loads(request.body)
+        # Parse JSON data from request body
+        data = {}
+        if request.body:
+            try:
+                data = json.loads(request.body)
+            except json.JSONDecodeError:
+                pass
+
+        # Handle multipart form data (for file uploads)
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            data.update(request.POST.dict())
 
         # Common fields to update
         updated_fields = {
@@ -321,16 +330,83 @@ def update_widget(request, widget_id):
         current_settings = widget.get("settings", {})
         incoming_settings = data.get("settings", {})
 
+        # Handle logo upload to S3
+        logo_url = incoming_settings.get("logo", current_settings.get("logo", ""))
+        logo_file = request.FILES.get("logo")
+        if logo_file:
+            try:
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                    region_name=settings.AWS_S3_REGION_NAME
+                )
+                bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+                file_name = f"chat_logos/{uuid.uuid4()}/{logo_file.name}"
+
+                s3_client.upload_fileobj(
+                    logo_file,
+                    bucket_name,
+                    file_name,
+                    ExtraArgs={'ContentType': logo_file.content_type}
+                )
+                logo_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
+            except Exception as e:
+                logger.error(f"Logo upload failed: {str(e)}", exc_info=True)
+                return JsonResponse({'error': f'Failed to upload logo: {str(e)}'}, status=500)
+
+        # Handle attention grabber (upload or URL)
+        attention_grabber_file = request.FILES.get("attentionGrabberFile")
+        attention_grabber_url = incoming_settings.get("attentionGrabber", current_settings.get("attentionGrabber", ""))
+
+        # Check if attention grabber URL is provided in form data
+        if not attention_grabber_url and hasattr(request, 'POST'):
+            attention_grabber_url = request.POST.get("attentionGrabber", "").strip()
+
+        if attention_grabber_file:
+            try:
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                    region_name=settings.AWS_S3_REGION_NAME
+                )
+                bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+                file_name = f"attentionGrabbers/{uuid.uuid4()}/{attention_grabber_file.name}"
+
+                s3_client.upload_fileobj(
+                    attention_grabber_file,
+                    bucket_name,
+                    file_name,
+                    ExtraArgs={'ContentType': attention_grabber_file.content_type}
+                )
+                attention_grabber_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
+            except Exception as e:
+                logger.error(f"Attention grabber upload failed: {str(e)}", exc_info=True)
+                return JsonResponse({'error': f'Failed to upload attention grabber: {str(e)}'}, status=500)
+
+        # Build updated settings with uploaded files
         updated_settings = {
             "position": incoming_settings.get("position", current_settings.get("position", "right")),
             "primaryColor": incoming_settings.get("primaryColor", current_settings.get("primaryColor", "#10B981")),
-            "logo": incoming_settings.get("logo", current_settings.get("logo", "")),
+            "logo": logo_url,
             "enableAttentionGrabber": incoming_settings.get("enableAttentionGrabber", current_settings.get("enableAttentionGrabber", False)),
-            "attentionGrabber": incoming_settings.get("attentionGrabber", current_settings.get("attentionGrabber", "")),
+            "attentionGrabber": attention_grabber_url,
             "welcomeMessage": incoming_settings.get("welcomeMessage", current_settings.get("welcomeMessage", "")),
             "offlineMessage": incoming_settings.get("offlineMessage", current_settings.get("offlineMessage", "")),
             "soundEnabled": incoming_settings.get("soundEnabled", current_settings.get("soundEnabled", True)),
         }
+
+        # Handle form data for settings (for multipart requests)
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            updated_settings.update({
+                "position": request.POST.get("position", updated_settings["position"]),
+                "primaryColor": request.POST.get("primaryColor", updated_settings["primaryColor"]),
+                "enableAttentionGrabber": request.POST.get("enableAttentionGrabber", "false").lower() == "true",
+                "welcomeMessage": request.POST.get("welcomeMessage", updated_settings["welcomeMessage"]),
+                "offlineMessage": request.POST.get("offlineMessage", updated_settings["offlineMessage"]),
+                "soundEnabled": request.POST.get("soundEnabled", "true").lower() == "true",
+            })
 
         # Generate updated widget code with new settings
         updated_widget_code = generate_widget_code(
@@ -357,6 +433,13 @@ def update_widget(request, widget_id):
             domain = data.get("domain", widget.get("domain", "http://localhost:8000"))
             name = data.get("name", widget.get("name"))
             is_active = data.get("is_active", widget.get("is_active"))
+
+            # Handle form data for superadmin fields
+            if request.content_type and 'multipart/form-data' in request.content_type:
+                widget_type = request.POST.get("widget_type", widget_type)
+                domain = request.POST.get("domain", domain)
+                name = request.POST.get("name", name)
+                is_active = request.POST.get("is_active", "false").lower() == "true"
 
             if not widget_type or not name:
                 return JsonResponse({"error": "Missing required fields: widget_type or name"}, status=400)
@@ -401,7 +484,7 @@ def update_widget(request, widget_id):
         return JsonResponse({
             "widget_id": widget_id,
             "widget_type": updated_fields.get("widget_type", widget.get("widget_type")),
-            "domain": widget.get("domain", "http://localhost:8000"),
+            "domain": updated_fields.get("domain", widget.get("domain", "http://localhost:8000")),
             "name": updated_fields.get("name", widget.get("name")),
             "is_active": updated_fields.get("is_active", widget.get("is_active")),
             "settings": updated_fields.get("settings", widget.get("settings")),
@@ -411,8 +494,9 @@ def update_widget(request, widget_id):
         }, status=200)
 
     except Exception as e:
+        logger.exception("Error in update_widget")
         return JsonResponse({"error": str(e)}, status=500)
-
+    
 @csrf_exempt
 @jwt_required
 @superadmin_required
