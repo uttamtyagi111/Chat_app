@@ -39,7 +39,7 @@
             font-weight: bold;
             color: #495057;
         }
-        .lookup-form {
+        .lookup-form {  
             margin: 20px 0;
             padding: 15px;
             background: #e9ecef;
@@ -68,127 +68,24 @@
 <body>
   <h1>Test Chat Widget</h1>
   <div class="container">
-        <h1>IP Whois Information Widget</h1>
         
-        {% comment %} <!-- IP Lookup Form -->
-        <div class="lookup-form">
-            <h3>Lookup IP Address</h3>
-            <form method="get">
-                <input type="text" name="ip" placeholder="Enter IP address" value="{{ ip_address }}">
-                <button type="submit">Lookup</button>
-            </form>
-        </div>
-        
-        {% if error_message %}
-            <div class="error">
-                <strong>Error:</strong> {{ error_message }}
-            </div>
-        {% endif %}
-        
-        {% if ip_info %}
-            <div class="ip-info">
-                <h2>Information for IP: {{ ip_address }}</h2>
-                
-                <div class="info-grid">
-                    <div class="info-label">IP Address:</div>
-                    <div>{{ ip_info.ip|default:"N/A" }}</div>
-                    
-                    <div class="info-label">Country:</div>
-                    <div>{{ ip_info.country|default:"N/A" }} ({{ ip_info.country_code|default:"N/A" }})</div>
-                    
-                    <div class="info-label">Region:</div>
-                    <div>{{ ip_info.region|default:"N/A" }}</div>
-                    
-                    <div class="info-label">City:</div>
-                    <div>{{ ip_info.city|default:"N/A" }}</div>
-                    
-                    <div class="info-label">ISP:</div>
-                    <div>{{ ip_info.isp|default:"N/A" }}</div>
-                    
-                    <div class="info-label">Organization:</div>
-                    <div>{{ ip_info.org|default:"N/A" }}</div>
-                    
-                    <div class="info-label">Timezone:</div>
-                    <div>{{ ip_info.timezone|default:"N/A" }}</div>
-                    
-                    <div class="info-label">Latitude:</div>
-                    <div>{{ ip_info.latitude|default:"N/A" }}</div>
-                    
-                    <div class="info-label">Longitude:</div>
-                    <div>{{ ip_info.longitude|default:"N/A" }}</div>
-                    
-                    {% if ip_info.success %}
-                        <div class="info-label">Success:</div>
-                        <div style="color: green;">✓ Successfully retrieved data</div>
-                    {% endif %}
-                </div>
-                
-                <!-- Raw JSON data (for debugging) -->
-                <details style="margin-top: 20px;">
-                    <summary>Raw API Response</summary>
-                    <pre style="background: #f1f1f1; padding: 10px; overflow-x: auto;">{{ ip_info|pprint }}</pre>
-                </details>
-            </div>
-        {% endif %}
-        
-        {% if whois_data %}
-            <!-- Alternative display for python-ipwhois library data -->
-            <div class="ip-info">
-                <h2>WHOIS Information for IP: {{ ip_address }}</h2>
-                
-                <div class="info-grid">
-                    {% for key, value in whois_data.items %}
-                        <div class="info-label">{{ key|title }}:</div>
-                        <div>{{ value }}</div>
-                    {% endfor %}
-                </div>
-            </div>
-        {% endif %}
-        
-        <div style="margin-top: 30px; padding: 15px; background: #d1ecf1; border-radius: 5px;">
-            <h4>Features:</h4>
-            <ul>
-                <li>Automatic client IP detection</li>
-                <li>Manual IP lookup via form</li>
-                <li>Detailed geolocation and ISP information</li>
-                <li>Error handling for invalid IPs</li>
-                <li>JSON API support for AJAX requests</li>
-            </ul>
-        </div>
-    </div>
-    
-    <script>
-        // Optional: Add AJAX functionality
-        function lookupIP(ip) {
-            fetch(`?ip=${ip}`, {
-                headers: {
-                    'Accept': 'application/json'
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('IP Info:', data);
-                // Update page content dynamically
-            })
-            .catch(error => {
-                console.error('Error:', error);
-            });
-        }
-    </script> {% endcomment %}
 
-  <!-- Correct way to include static JS file -->
-  <script src="{% static 'js/chat_widget.js' %}?widget_id=03d5490f-590e" data-theme-color="#28a745"></script>
+ <!-- Correct way to include static JS file -->
+    <script 
+    src="http://localhost:8000/static/js/chat_widget.js?widget_id=fd0729b9-18b0"
+    ></script>
+
 </body>
 </html>
 <script>
   // This script is for testing purposes only
   console.log("Chat widget script loaded successfully.");
-  // You can add more test code here to verify the widget's functionality
-  // For example, you can check if the widget is initialized correctly
-  // or if the theme color is applied as expected.
-  // This is just a placeholder for your actual test code.
-  // You can also use console.log to output the widget_id and theme color
-  // to verify that they are being passed correctly.
-  console.log("Widget ID:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color'));
-  console.log("Theme Color:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color'));
+
+  {% comment %} console.log("Widget ID:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color')); {% endcomment %}
+  {% comment %} console.log("Theme Color:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color'));
+  console.log("Logo URL:", document.querySelector('script[data-logo-url]').getAttribute('data-logo-url'));
+  console.log("Position:", document.querySelector('script[data-position]').getAttribute('data-position')); {% endcomment %}
+  // You can also add event listeners to test interactions with the widget.
+
+
 </script>
