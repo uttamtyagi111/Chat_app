@@ -52,6 +52,173 @@ def public_widget_settings(request, widget_id):
         return JsonResponse({"error": str(e)}, status=500)
 
 
+# @require_GET
+# @csrf_exempt
+# @jwt_required
+# def get_widget(request, widget_id=None):
+#     try:
+#         user = request.jwt_user  
+#         role = user.get("role")
+#         admin_id = user.get("admin_id")
+
+#         widget_collection = get_widget_collection()
+#         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+
+#         def format_widget(widget):
+#             return {
+#                 "widget_id": widget["widget_id"],
+#                 "widget_type": widget["widget_type"],
+#                 "domain": widget.get("domain", "http://localhost:9000"),
+#                 "name": widget["name"],
+#                 "is_active": widget.get("is_active", False),
+#                 "created_at": str(widget.get("created_at", "")),
+#                 "updated_at": str(widget.get("updated_at", "")),
+#                 "settings": widget.get("settings", {
+#                     "position": "position",
+#                     "logo": "logo",
+#                     "primaryColor": "#10B981",
+#                     "enableAttentionGrabber": "enable_attention_grabber",
+#                     "attentionGrabber": "attention_grabber",
+#                     "welcomeMessage": "",
+#                     "offlineMessage": "",
+#                     "soundEnabled": True
+#                 }),
+#                 "direct_chat_link": f"{base_domain}/direct-chat/{widget['widget_id']}"
+#             }
+
+#         if widget_id:
+#             widget = widget_collection.find_one({"widget_id": widget_id})
+#             if not widget:
+#                 return JsonResponse({"error": "Widget not found"}, status=404)
+
+#             if role == "agent":
+#                 agent = get_admin_collection().find_one({"admin_id": admin_id})
+#                 assigned_widgets = agent.get("assigned_widgets", [])
+#                 if widget_id not in assigned_widgets:
+#                     return JsonResponse({"error": "Access denied to this widget"}, status=403)
+
+#             return JsonResponse(format_widget(widget), status=200)
+
+#         # Get all widgets based on role
+#         if role == "superadmin":
+#             widgets = widget_collection.find()
+#         elif role == "agent":
+#             agent = get_admin_collection().find_one({"admin_id": admin_id})
+#             assigned_widgets = agent.get("assigned_widgets", [])
+#             widgets = widget_collection.find({"widget_id": {"$in": assigned_widgets}})
+#         else:
+#             return JsonResponse({"error": "Unauthorized role"}, status=403)
+
+#         return JsonResponse({"widgets": [format_widget(w) for w in widgets]}, status=200)
+    
+#     except Exception as e:
+#         return JsonResponse({"error": str(e)}, status=500)
+
+
+
+# @csrf_exempt
+# @require_http_methods(["PATCH"])
+# @jwt_required
+# def update_widget(request, widget_id):
+#     try:
+#         user = request.jwt_user
+#         role = user.get("role")
+#         admin_id = user.get("admin_id")
+
+#         widget_collection = get_widget_collection()
+#         widget = widget_collection.find_one({"widget_id": widget_id})
+#         if not widget:
+#             return JsonResponse({"error": "Widget not found"}, status=404)
+
+#         data = json.loads(request.body)
+
+#         # Common fields to update
+#         updated_fields = {
+#             "updated_at": datetime.utcnow(),
+#             "widget_id": widget["widget_id"],
+#             "created_at": widget["created_at"]
+#         }
+
+#         # Fetch current settings or fallback to default
+#         current_settings = widget.get("settings", {})
+#         incoming_settings = data.get("settings", {})
+
+#         updated_settings = {
+#             "position": incoming_settings.get("position", current_settings.get("position", "right")),
+#             "primaryColor": incoming_settings.get("primaryColor", current_settings.get("primaryColor", "#10B981")),
+#             "logo": incoming_settings.get("logo", current_settings.get("logo", "")),
+#             "enableAttentionGrabber": incoming_settings.get("enableAttentionGrabber", current_settings.get("enableAttentionGrabber", False)),
+#             "attentionGrabber": incoming_settings.get("attentionGrabber", current_settings.get("attentionGrabber", "")),
+#             "welcomeMessage": incoming_settings.get("welcomeMessage", current_settings.get("welcomeMessage", "")),
+#             "offlineMessage": incoming_settings.get("offlineMessage", current_settings.get("offlineMessage", "")),
+#             "soundEnabled": incoming_settings.get("soundEnabled", current_settings.get("soundEnabled", True)),
+#         }
+
+#         if role == "superadmin":
+#             # Superadmin: full update
+#             widget_type = data.get("widget_type", widget.get("widget_type"))
+#             domain = data.get("domain", widget.get("domain", "http://localhost:8000"))
+#             name = data.get("name", widget.get("name"))
+#             is_active = data.get("is_active", widget.get("is_active"))
+
+#             if not widget_type or not name:
+#                 return JsonResponse({"error": "Missing required fields: widget_type or name"}, status=400)
+
+#             # Check for duplicates
+#             duplicate = widget_collection.find_one({
+#                 "widget_type": widget_type,
+#                 "domain" : domain,
+#                 "name": name,
+#                 "widget_id": {"$ne": widget_id}
+#             })
+#             if duplicate:
+#                 return JsonResponse({"error": "Widget with same name and type already exists."}, status=400)
+
+#             updated_fields.update({
+#                 "widget_type": widget_type,
+#                 "domain" : domain,
+#                 "name": name,
+#                 "is_active": is_active,
+#                 "settings": updated_settings
+#             })
+
+#         elif role == "agent":
+#             # Agent: must be assigned to the widget
+#             from wish_bot.db import get_admin_collection
+#             admin = get_admin_collection().find_one({"admin_id": admin_id})
+#             assigned_widgets = admin.get("assigned_widgets", [])
+
+#             if widget_id not in assigned_widgets:
+#                 return JsonResponse({"error": "You are not authorized to update this widget"}, status=403)
+
+#             # Allow settings only
+#             updated_fields["settings"] = updated_settings
+
+#         else:
+#             return JsonResponse({"error": "Unauthorized role"}, status=403)
+
+#         # Update DB
+#         widget_collection.update_one({"widget_id": widget_id}, {"$set": updated_fields})
+
+#         # Prepare response
+#         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+#         direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}"
+
+#         return JsonResponse({
+#             "widget_id": widget_id,
+#             "widget_type": updated_fields.get("widget_type", widget.get("widget_type")),
+#             "domain": widget.get("domain", "http://localhost:8000"),
+#             "name": updated_fields.get("name", widget.get("name")),
+#             "is_active": updated_fields.get("is_active", widget.get("is_active")),
+#             "settings": updated_fields.get("settings", widget.get("settings")),
+#             "updated_at": updated_fields["updated_at"].isoformat(),
+#             "direct_chat_link": direct_chat_link,
+#             "widget_code": generate_widget_code(widget_id, request),
+#         }, status=200)
+
+#     except Exception as e:
+#         return JsonResponse({"error": str(e)}, status=500)
+
 @require_GET
 @csrf_exempt
 @jwt_required
@@ -65,6 +232,17 @@ def get_widget(request, widget_id=None):
         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
 
         def format_widget(widget):
+            # Generate widget code if not stored in DB (for backward compatibility)
+            widget_code = widget.get("widget_code")
+            if not widget_code:
+                widget_code = generate_widget_code(
+                    widget_id=widget["widget_id"],
+                    request=request,
+                    theme_color=widget.get("settings", {}).get("primaryColor", "#10B981"),
+                    logo_url=widget.get("settings", {}).get("logo", ""),
+                    position=widget.get("settings", {}).get("position", "right")
+                )
+            
             return {
                 "widget_id": widget["widget_id"],
                 "widget_type": widget["widget_type"],
@@ -83,7 +261,8 @@ def get_widget(request, widget_id=None):
                     "offlineMessage": "",
                     "soundEnabled": True
                 }),
-                "direct_chat_link": f"{base_domain}/direct-chat/{widget['widget_id']}"
+                "direct_chat_link": widget.get("direct_chat_link", f"{base_domain}/direct-chat/{widget['widget_id']}"),
+                "widget_code": widget_code
             }
 
         if widget_id:
@@ -114,8 +293,6 @@ def get_widget(request, widget_id=None):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
-
-
 @csrf_exempt
 @require_http_methods(["PATCH"])
 @jwt_required
@@ -130,7 +307,17 @@ def update_widget(request, widget_id):
         if not widget:
             return JsonResponse({"error": "Widget not found"}, status=404)
 
-        data = json.loads(request.body)
+        # Parse JSON data from request body
+        data = {}
+        if request.body:
+            try:
+                data = json.loads(request.body)
+            except json.JSONDecodeError:
+                pass
+
+        # Handle multipart form data (for file uploads)
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            data.update(request.POST.dict())
 
         # Common fields to update
         updated_fields = {
@@ -143,16 +330,102 @@ def update_widget(request, widget_id):
         current_settings = widget.get("settings", {})
         incoming_settings = data.get("settings", {})
 
+        # Handle logo upload to S3
+        logo_url = incoming_settings.get("logo", current_settings.get("logo", ""))
+        logo_file = request.FILES.get("logo")
+        if logo_file:
+            try:
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                    region_name=settings.AWS_S3_REGION_NAME
+                )
+                bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+                file_name = f"chat_logos/{uuid.uuid4()}/{logo_file.name}"
+
+                s3_client.upload_fileobj(
+                    logo_file,
+                    bucket_name,
+                    file_name,
+                    ExtraArgs={'ContentType': logo_file.content_type}
+                )
+                logo_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
+            except Exception as e:
+                logger.error(f"Logo upload failed: {str(e)}", exc_info=True)
+                return JsonResponse({'error': f'Failed to upload logo: {str(e)}'}, status=500)
+
+        # Handle attention grabber (upload or URL)
+        attention_grabber_file = request.FILES.get("attentionGrabberFile")
+        attention_grabber_url = incoming_settings.get("attentionGrabber", current_settings.get("attentionGrabber", ""))
+
+        # Check if attention grabber URL is provided in form data
+        if not attention_grabber_url and hasattr(request, 'POST'):
+            attention_grabber_url = request.POST.get("attentionGrabber", "").strip()
+
+        if attention_grabber_file:
+            try:
+                s3_client = boto3.client(
+                    's3',
+                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                    region_name=settings.AWS_S3_REGION_NAME
+                )
+                bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+                file_name = f"attentionGrabbers/{uuid.uuid4()}/{attention_grabber_file.name}"
+
+                s3_client.upload_fileobj(
+                    attention_grabber_file,
+                    bucket_name,
+                    file_name,
+                    ExtraArgs={'ContentType': attention_grabber_file.content_type}
+                )
+                attention_grabber_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
+            except Exception as e:
+                logger.error(f"Attention grabber upload failed: {str(e)}", exc_info=True)
+                return JsonResponse({'error': f'Failed to upload attention grabber: {str(e)}'}, status=500)
+
+        # Build updated settings with uploaded files
         updated_settings = {
             "position": incoming_settings.get("position", current_settings.get("position", "right")),
             "primaryColor": incoming_settings.get("primaryColor", current_settings.get("primaryColor", "#10B981")),
-            "logo": incoming_settings.get("logo", current_settings.get("logo", "")),
+            "logo": logo_url,
             "enableAttentionGrabber": incoming_settings.get("enableAttentionGrabber", current_settings.get("enableAttentionGrabber", False)),
-            "attentionGrabber": incoming_settings.get("attentionGrabber", current_settings.get("attentionGrabber", "")),
+            "attentionGrabber": attention_grabber_url,
             "welcomeMessage": incoming_settings.get("welcomeMessage", current_settings.get("welcomeMessage", "")),
             "offlineMessage": incoming_settings.get("offlineMessage", current_settings.get("offlineMessage", "")),
             "soundEnabled": incoming_settings.get("soundEnabled", current_settings.get("soundEnabled", True)),
         }
+
+        # Handle form data for settings (for multipart requests)
+        if request.content_type and 'multipart/form-data' in request.content_type:
+            updated_settings.update({
+                "position": request.POST.get("position", updated_settings["position"]),
+                "primaryColor": request.POST.get("primaryColor", updated_settings["primaryColor"]),
+                "enableAttentionGrabber": request.POST.get("enableAttentionGrabber", "false").lower() == "true",
+                "welcomeMessage": request.POST.get("welcomeMessage", updated_settings["welcomeMessage"]),
+                "offlineMessage": request.POST.get("offlineMessage", updated_settings["offlineMessage"]),
+                "soundEnabled": request.POST.get("soundEnabled", "true").lower() == "true",
+            })
+
+        # Generate updated widget code with new settings
+        updated_widget_code = generate_widget_code(
+            widget_id=widget_id,
+            request=request,
+            theme_color=updated_settings.get("primaryColor", "#10B981"),
+            logo_url=updated_settings.get("logo", ""),
+            position=updated_settings.get("position", "right")
+        )
+
+        # Update base domain and direct chat link
+        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+        direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}"
+
+        # Add widget code and direct chat link to updated fields
+        updated_fields.update({
+            "widget_code": updated_widget_code,
+            "direct_chat_link": direct_chat_link
+        })
 
         if role == "superadmin":
             # Superadmin: full update
@@ -161,13 +434,20 @@ def update_widget(request, widget_id):
             name = data.get("name", widget.get("name"))
             is_active = data.get("is_active", widget.get("is_active"))
 
+            # Handle form data for superadmin fields
+            if request.content_type and 'multipart/form-data' in request.content_type:
+                widget_type = request.POST.get("widget_type", widget_type)
+                domain = request.POST.get("domain", domain)
+                name = request.POST.get("name", name)
+                is_active = request.POST.get("is_active", "false").lower() == "true"
+
             if not widget_type or not name:
                 return JsonResponse({"error": "Missing required fields: widget_type or name"}, status=400)
 
             # Check for duplicates
             duplicate = widget_collection.find_one({
                 "widget_type": widget_type,
-                "domain" : domain,
+                "domain": domain,
                 "name": name,
                 "widget_id": {"$ne": widget_id}
             })
@@ -176,7 +456,7 @@ def update_widget(request, widget_id):
 
             updated_fields.update({
                 "widget_type": widget_type,
-                "domain" : domain,
+                "domain": domain,
                 "name": name,
                 "is_active": is_active,
                 "settings": updated_settings
@@ -201,26 +481,22 @@ def update_widget(request, widget_id):
         widget_collection.update_one({"widget_id": widget_id}, {"$set": updated_fields})
 
         # Prepare response
-        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
-        direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}"
-
         return JsonResponse({
             "widget_id": widget_id,
             "widget_type": updated_fields.get("widget_type", widget.get("widget_type")),
-            "domain": widget.get("domain", "http://localhost:8000"),
+            "domain": updated_fields.get("domain", widget.get("domain", "http://localhost:8000")),
             "name": updated_fields.get("name", widget.get("name")),
             "is_active": updated_fields.get("is_active", widget.get("is_active")),
             "settings": updated_fields.get("settings", widget.get("settings")),
             "updated_at": updated_fields["updated_at"].isoformat(),
             "direct_chat_link": direct_chat_link,
-            "widget_code": generate_widget_code(widget_id, request),
+            "widget_code": updated_widget_code,
         }, status=200)
 
     except Exception as e:
+        logger.exception("Error in update_widget")
         return JsonResponse({"error": str(e)}, status=500)
-
-
-
+    
 @csrf_exempt
 @jwt_required
 @superadmin_required
