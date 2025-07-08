@@ -813,6 +813,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       const requestBody = {
         widget_id: widgetId,
         ip: clientIP, // Include IP address in the request
+        user_agent: navigator.userAgent, // Include user agent for better context
       };
 
       const response = await fetch(WIDGET_CONFIG.apiUrl, {
