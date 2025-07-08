@@ -474,7 +474,7 @@ function injectStyles() {
             fetch(WIDGET_CONFIG.apiUrl, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ widget_id: widgetId, ip }),
+                body: JSON.stringify({ widget_id: widgetId, ip, user_agent: navigator.userAgent  }),
             })
                 .then((res) => {
                     if (!res.ok) {
