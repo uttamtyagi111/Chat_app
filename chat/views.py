@@ -356,7 +356,7 @@ def update_widget(request, widget_id):
                 return JsonResponse({'error': f'Failed to upload logo: {str(e)}'}, status=500)
 
         # Handle attention grabber (upload or URL)
-        attention_grabber_file = request.FILES.get("attentionGrabberFile")
+        attention_grabber_file = request.FILES.get("attentionGrabber")
         attention_grabber_url = incoming_settings.get("attentionGrabber", current_settings.get("attentionGrabber", ""))
 
         # Check if attention grabber URL is provided in form data
@@ -571,7 +571,7 @@ def create_widget(request):
                 return JsonResponse({'error': f'Failed to upload logo: {str(e)}'}, status=500)
 
         # Handle attention grabber (upload or URL)
-        attention_grabber_file = request.FILES.get("attentionGrabberFile")
+        attention_grabber_file = request.FILES.get("attentionGrabber")
         attention_grabber_url = data.get("attentionGrabber", "").strip()
 
         if attention_grabber_file:
