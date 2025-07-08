@@ -14,6 +14,7 @@ import logging
 import uuid
 import json
 import boto3
+from botocore.exceptions import ClientError
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -298,26 +299,73 @@ def get_widget(request, widget_id=None):
 @jwt_required
 def update_widget(request, widget_id):
     try:
+        # Add debug logging
+        logger.info(f"Update widget request for widget_id: {widget_id}")
+        logger.info(f"Request content type: {request.content_type}")
+        logger.info(f"Request method: {request.method}")
+        
         user = request.jwt_user
         role = user.get("role")
         admin_id = user.get("admin_id")
+        
+        logger.info(f"User role: {role}, admin_id: {admin_id}")
 
         widget_collection = get_widget_collection()
         widget = widget_collection.find_one({"widget_id": widget_id})
         if not widget:
+            logger.error(f"Widget not found: {widget_id}")
             return JsonResponse({"error": "Widget not found"}, status=404)
 
-        # Parse JSON data from request body
+        # Initialize data dictionary
         data = {}
-        if request.body:
-            try:
-                data = json.loads(request.body)
-            except json.JSONDecodeError:
-                pass
+        is_multipart = request.content_type and 'multipart/form-data' in request.content_type
+        
+        logger.info(f"Is multipart request: {is_multipart}")
 
-        # Handle multipart form data (for file uploads)
-        if request.content_type and 'multipart/form-data' in request.content_type:
-            data.update(request.POST.dict())
+        if is_multipart:
+            # Handle multipart form data
+            data = request.POST.dict()
+            logger.info(f"POST data: {data}")
+            logger.info(f"FILES data: {list(request.FILES.keys())}")
+            
+            # If POST data is empty but we have files, this might be a file-only upload
+            if not data and not request.FILES:
+                logger.warning("Multipart request with no POST data and no files")
+                return JsonResponse({"error": "No data provided in multipart request"}, status=400)
+            
+            # Convert string boolean values to actual booleans
+            bool_fields = ['is_active', 'enableAttentionGrabber', 'soundEnabled']
+            for field in bool_fields:
+                if field in data:
+                    data[field] = data[field].lower() == 'true'
+            
+            # Handle nested settings if they come as separate form fields
+            settings_data = {}
+            settings_fields = ['position', 'primaryColor', 'logo', 'enableAttentionGrabber', 
+                             'attentionGrabber', 'welcomeMessage', 'offlineMessage', 'soundEnabled']
+            
+            for field in settings_fields:
+                if field in data:
+                    settings_data[field] = data[field]
+            
+            if settings_data:
+                data['settings'] = settings_data
+            
+            # If we still have no data but we have files, create empty settings to allow file uploads
+            if not data and request.FILES:
+                data = {'settings': {}}
+                
+        else:
+            # Handle JSON data
+            if request.body:
+                try:
+                    data = json.loads(request.body)
+                    logger.info(f"JSON data: {data}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON decode error: {e}")
+                    return JsonResponse({"error": "Invalid JSON data"}, status=400)
+            else:
+                logger.warning("Empty request body")
 
         # Common fields to update
         updated_fields = {
@@ -326,15 +374,29 @@ def update_widget(request, widget_id):
             "created_at": widget["created_at"]
         }
 
-        # Fetch current settings or fallback to default
+        # Fetch current settings with better error handling
         current_settings = widget.get("settings", {})
         incoming_settings = data.get("settings", {})
+        
+        logger.info(f"Current settings: {current_settings}")
+        logger.info(f"Incoming settings: {incoming_settings}")
 
         # Handle logo upload to S3
         logo_url = incoming_settings.get("logo", current_settings.get("logo", ""))
         logo_file = request.FILES.get("logo")
+        
         if logo_file:
+            logger.info(f"Logo file received: {logo_file.name}, size: {logo_file.size}")
             try:
+                # Validate file size (e.g., max 5MB)
+                if logo_file.size > 5 * 1024 * 1024:
+                    return JsonResponse({'error': 'Logo file too large (max 5MB)'}, status=400)
+                
+                # Validate file type
+                allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+                if logo_file.content_type not in allowed_types:
+                    return JsonResponse({'error': 'Invalid logo file type'}, status=400)
+                
                 s3_client = boto3.client(
                     's3',
                     aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -351,6 +413,11 @@ def update_widget(request, widget_id):
                     ExtraArgs={'ContentType': logo_file.content_type}
                 )
                 logo_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
+                logger.info(f"Logo uploaded successfully: {logo_url}")
+                
+            except ClientError as e:
+                logger.error(f"S3 client error during logo upload: {str(e)}", exc_info=True)
+                return JsonResponse({'error': f'S3 upload failed: {str(e)}'}, status=500)
             except Exception as e:
                 logger.error(f"Logo upload failed: {str(e)}", exc_info=True)
                 return JsonResponse({'error': f'Failed to upload logo: {str(e)}'}, status=500)
@@ -359,12 +426,18 @@ def update_widget(request, widget_id):
         attention_grabber_file = request.FILES.get("attentionGrabber")
         attention_grabber_url = incoming_settings.get("attentionGrabber", current_settings.get("attentionGrabber", ""))
 
-        # Check if attention grabber URL is provided in form data
-        if not attention_grabber_url and hasattr(request, 'POST'):
-            attention_grabber_url = request.POST.get("attentionGrabber", "").strip()
-
         if attention_grabber_file:
+            logger.info(f"Attention grabber file received: {attention_grabber_file.name}, size: {attention_grabber_file.size}")
             try:
+                # Validate file size (e.g., max 10MB for attention grabber)
+                if attention_grabber_file.size > 10 * 1024 * 1024:
+                    return JsonResponse({'error': 'Attention grabber file too large (max 10MB)'}, status=400)
+                
+                # Validate file type for attention grabber (could be image or video)
+                allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm']
+                if attention_grabber_file.content_type not in allowed_types:
+                    return JsonResponse({'error': 'Invalid attention grabber file type'}, status=400)
+                
                 s3_client = boto3.client(
                     's3',
                     aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -381,6 +454,11 @@ def update_widget(request, widget_id):
                     ExtraArgs={'ContentType': attention_grabber_file.content_type}
                 )
                 attention_grabber_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
+                logger.info(f"Attention grabber uploaded successfully: {attention_grabber_url}")
+                
+            except ClientError as e:
+                logger.error(f"S3 client error during attention grabber upload: {str(e)}", exc_info=True)
+                return JsonResponse({'error': f'S3 upload failed: {str(e)}'}, status=500)
             except Exception as e:
                 logger.error(f"Attention grabber upload failed: {str(e)}", exc_info=True)
                 return JsonResponse({'error': f'Failed to upload attention grabber: {str(e)}'}, status=500)
@@ -396,30 +474,36 @@ def update_widget(request, widget_id):
             "offlineMessage": incoming_settings.get("offlineMessage", current_settings.get("offlineMessage", "")),
             "soundEnabled": incoming_settings.get("soundEnabled", current_settings.get("soundEnabled", True)),
         }
-
-        # Handle form data for settings (for multipart requests)
-        if request.content_type and 'multipart/form-data' in request.content_type:
-            updated_settings.update({
-                "position": request.POST.get("position", updated_settings["position"]),
-                "primaryColor": request.POST.get("primaryColor", updated_settings["primaryColor"]),
-                "enableAttentionGrabber": request.POST.get("enableAttentionGrabber", "false").lower() == "true",
-                "welcomeMessage": request.POST.get("welcomeMessage", updated_settings["welcomeMessage"]),
-                "offlineMessage": request.POST.get("offlineMessage", updated_settings["offlineMessage"]),
-                "soundEnabled": request.POST.get("soundEnabled", "true").lower() == "true",
-            })
+        
+        logger.info(f"Updated settings: {updated_settings}")
 
         # Generate updated widget code with new settings
-        updated_widget_code = generate_widget_code(
-            widget_id=widget_id,
-            request=request,
-            theme_color=updated_settings.get("primaryColor", "#10B981"),
-            logo_url=updated_settings.get("logo", ""),
-            position=updated_settings.get("position", "right")
-        )
+        try:
+            updated_widget_code = generate_widget_code(
+                widget_id=widget_id,
+                request=request,
+                theme_color=updated_settings.get("primaryColor", "#10B981"),
+                logo_url=updated_settings.get("logo", ""),
+                position=updated_settings.get("position", "right")
+            )
+            logger.info("Widget code generated successfully")
+        except Exception as e:
+            logger.error(f"Failed to generate widget code: {str(e)}", exc_info=True)
+            return JsonResponse({'error': f'Failed to generate widget code: {str(e)}'}, status=500)
 
         # Update base domain and direct chat link
-        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+        host = request.get_host()
+        if host.startswith("localhost"):
+            base_domain = "http://localhost:8000"
+        elif host.startswith("127.0.0.1"):
+            base_domain = "http://127.0.0.1:8000"
+        else:
+            # Use HTTPS for production
+            base_domain = f"https://{host}"
+        
         direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}"
+        
+        logger.info(f"Base domain: {base_domain}, Direct chat link: {direct_chat_link}")
 
         # Add widget code and direct chat link to updated fields
         updated_fields.update({
@@ -428,20 +512,15 @@ def update_widget(request, widget_id):
         })
 
         if role == "superadmin":
+            logger.info("Processing superadmin update")
             # Superadmin: full update
             widget_type = data.get("widget_type", widget.get("widget_type"))
-            domain = data.get("domain", widget.get("domain", "http://localhost:8000"))
+            domain = data.get("domain", widget.get("domain", base_domain))
             name = data.get("name", widget.get("name"))
             is_active = data.get("is_active", widget.get("is_active"))
 
-            # Handle form data for superadmin fields
-            if request.content_type and 'multipart/form-data' in request.content_type:
-                widget_type = request.POST.get("widget_type", widget_type)
-                domain = request.POST.get("domain", domain)
-                name = request.POST.get("name", name)
-                is_active = request.POST.get("is_active", "false").lower() == "true"
-
             if not widget_type or not name:
+                logger.error("Missing required fields for superadmin update")
                 return JsonResponse({"error": "Missing required fields: widget_type or name"}, status=400)
 
             # Check for duplicates
@@ -452,6 +531,7 @@ def update_widget(request, widget_id):
                 "widget_id": {"$ne": widget_id}
             })
             if duplicate:
+                logger.error(f"Duplicate widget found: {duplicate['widget_id']}")
                 return JsonResponse({"error": "Widget with same name and type already exists."}, status=400)
 
             updated_fields.update({
@@ -463,39 +543,69 @@ def update_widget(request, widget_id):
             })
 
         elif role == "agent":
+            logger.info("Processing agent update")
             # Agent: must be assigned to the widget
-            from wish_bot.db import get_admin_collection
-            admin = get_admin_collection().find_one({"admin_id": admin_id})
-            assigned_widgets = admin.get("assigned_widgets", [])
+            try:
+                from wish_bot.db import get_admin_collection
+                admin = get_admin_collection().find_one({"admin_id": admin_id})
+                if not admin:
+                    logger.error(f"Admin not found: {admin_id}")
+                    return JsonResponse({"error": "Admin not found"}, status=404)
+                
+                assigned_widgets = admin.get("assigned_widgets", [])
+                logger.info(f"Agent assigned widgets: {assigned_widgets}")
 
-            if widget_id not in assigned_widgets:
-                return JsonResponse({"error": "You are not authorized to update this widget"}, status=403)
+                if widget_id not in assigned_widgets:
+                    logger.error(f"Agent {admin_id} not authorized for widget {widget_id}")
+                    return JsonResponse({"error": "You are not authorized to update this widget"}, status=403)
 
-            # Allow settings only
-            updated_fields["settings"] = updated_settings
+                # Allow settings only
+                updated_fields["settings"] = updated_settings
+                
+            except Exception as e:
+                logger.error(f"Error checking agent permissions: {str(e)}", exc_info=True)
+                return JsonResponse({"error": "Error checking permissions"}, status=500)
 
         else:
+            logger.error(f"Unauthorized role: {role}")
             return JsonResponse({"error": "Unauthorized role"}, status=403)
 
         # Update DB
-        widget_collection.update_one({"widget_id": widget_id}, {"$set": updated_fields})
+        logger.info(f"Updating widget in database: {widget_id}")
+        try:
+            result = widget_collection.update_one(
+                {"widget_id": widget_id}, 
+                {"$set": updated_fields}
+            )
+            if result.matched_count == 0:
+                logger.error(f"Widget not found during update: {widget_id}")
+                return JsonResponse({"error": "Widget not found"}, status=404)
+            
+            logger.info(f"Widget updated successfully: {widget_id}, modified: {result.modified_count}")
+            
+        except Exception as e:
+            logger.error(f"Database update failed: {str(e)}", exc_info=True)
+            return JsonResponse({"error": "Database update failed"}, status=500)
 
         # Prepare response
-        return JsonResponse({
+        response_data = {
             "widget_id": widget_id,
             "widget_type": updated_fields.get("widget_type", widget.get("widget_type")),
-            "domain": updated_fields.get("domain", widget.get("domain", "http://localhost:8000")),
+            "domain": updated_fields.get("domain", widget.get("domain", base_domain)),
             "name": updated_fields.get("name", widget.get("name")),
             "is_active": updated_fields.get("is_active", widget.get("is_active")),
             "settings": updated_fields.get("settings", widget.get("settings")),
             "updated_at": updated_fields["updated_at"].isoformat(),
             "direct_chat_link": direct_chat_link,
             "widget_code": updated_widget_code,
-        }, status=200)
+        }
+        
+        logger.info(f"Returning successful response for widget: {widget_id}")
+        return JsonResponse(response_data, status=200)
 
     except Exception as e:
-        logger.exception("Error in update_widget")
-        return JsonResponse({"error": str(e)}, status=500)
+        logger.exception("Unexpected error in update_widget")
+        return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500) 
     
 @csrf_exempt
 @jwt_required
@@ -1118,6 +1228,7 @@ class UserChatAPIView(APIView):
     def post(self, request):
         widget_id = request.data.get("widget_id")
         client_ip = self.get_client_ip(request)
+        user_agent_string = request.data.get("user_agent", "")
 
         if not widget_id:
             return Response({"error": "Widget ID is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1125,6 +1236,12 @@ class UserChatAPIView(APIView):
             return Response({"error": "IP address is required from frontend"}, status=status.HTTP_400_BAD_REQUEST)
         
         print(f"[UserChatAPIView] Received POST - Widget ID: {widget_id}, IP: {client_ip}")
+        
+         # Parse user agent info
+        user_agent = parse(user_agent_string)
+        os_info = f"{user_agent.os.family} {user_agent.os.version_string}" if user_agent.os.family else "Unknown OS"
+        browser_info = f"{user_agent.browser.family} {user_agent.browser.version_string}" if user_agent.browser.family else "Unknown Browser"
+        
         # Get geolocation for given IP
         ip_info = self.get_ip_geolocation(client_ip)
 
@@ -1166,6 +1283,8 @@ class UserChatAPIView(APIView):
                 'timezone': ip_info.get('timezone', ''),
                 'flag_emoji': ip_info.get('flag')['emoji'] if ip_info.get('flag') else '',
                 'flag_url': ip_info.get('flag')['url'] if ip_info.get('flag') else '',
+                'os': os_info,
+                'browser': browser_info,
             }
         }
         insert_with_timestamps(room_collection, room_document)
@@ -1188,7 +1307,8 @@ class UserChatAPIView(APIView):
                 "timezone": ip_info.get('timezone', ''),
                 'flag_emoji': ip_info.get('flag')['emoji'] if ip_info.get('flag') else '',
                 'flag_url': ip_info.get('flag')['url'] if ip_info.get('flag') else '',
-
+                'os': os_info,
+                'browser': browser_info,
             }
         }
 
@@ -1253,6 +1373,54 @@ class UserChatAPIView(APIView):
             'flag': None
         }
 
+import requests
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET
+from user_agents import parse  # Install this with pip install pyyaml ua-parser user-agents
+
+
+@csrf_exempt
+@require_GET
+def test_ip_geolocation(request):
+    ip_address = request.GET.get('ip', '')
+
+    # Get browser & OS info from User-Agent
+    user_agent_str = request.META.get('HTTP_USER_AGENT', '')
+    user_agent = parse(user_agent_str)
+
+    browser = f"{user_agent.browser.family} {user_agent.browser.version_string}"
+    os = f"{user_agent.os.family} {user_agent.os.version_string}"
+    device = user_agent.device.family
+
+    # Handle local IPs
+    if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1']:
+        return JsonResponse({
+            'country': 'Local',
+            'city': 'Local',
+            'region': 'Local',
+            'country_code': '',
+            'timezone': '',
+            'flag': None,
+            'browser': browser,
+            'os': os,
+            'device': device
+        })
+
+    # IPWHOIS lookup
+    try:
+        api_url = f'https://ipwhois.pro/{ip_address}?key=8HaX4qcer2Ml9Hfc'
+        response = requests.get(api_url, timeout=10)
+        data = response.json() if response.status_code == 200 else {}
+
+        return JsonResponse({
+            'ip_data': data,
+            'browser': browser,
+            'os': os,
+            'device': device
+        })
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 # import requests
 # import json

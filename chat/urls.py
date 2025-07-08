@@ -41,6 +41,10 @@ urlpatterns = [
 
    ## Public API Endpoints
     path("widget/settings/<str:widget_id>/", views.public_widget_settings, name='public_widget_settings'),
+    
+
+
+     path('test-ip-geolocation/', views.test_ip_geolocation, name='test_ip_geolocation'),
 
 ]
 if settings.DEBUG:
