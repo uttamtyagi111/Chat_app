@@ -691,6 +691,7 @@ def chat_room_view(request, room_id):
             }, status=404)
 
         widget_id = room.get("widget_id")
+        assigned_agent = room.get("assigned_agent")
 
         # Agent access check
         if role == "agent":
@@ -716,7 +717,9 @@ def chat_room_view(request, room_id):
         return JsonResponse({
             'success': True,
             'messages': messages,
-            'room_id': room_id
+            'room_id': room_id,
+            'assigned_agent': assigned_agent,
+            'widget_id': widget_id,
         })
 
     except Exception as e:
