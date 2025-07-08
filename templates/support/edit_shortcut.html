@@ -1,7 +1,0 @@
-<h2>Edit Shortcut</h2>
-<form method="POST">
-  {% csrf_token %}
-  <input type="text" name="title" value="{{ shortcut.title }}" required><br>
-  <textarea name="content" required>{{ shortcut.content }}</textarea><br>
-  <button type="submit">Update</button>
-</form>

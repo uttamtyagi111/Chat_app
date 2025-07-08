@@ -1,8 +1,19 @@
+import logging
+from venv import logger
+import json
 from django.shortcuts import render, redirect
 from django.utils import timezone
 from bson import ObjectId
+from authentication.utils import jwt_required, agent_or_superadmin_required
 from wish_bot.db import get_ticket_collection,get_tag_collection, get_agent_collection
 from wish_bot.db import get_shortcut_collection,get_trigger_collection
+
+import random
+logger = logging.getLogger(__name__)
+
+def get_random_color():
+    colors = ['#FF5733', '#33FF57', '#3357FF', '#F39C12', '#9B59B6', '#1ABC9C']
+    return random.choice(colors)
 
 def ticket_list(request):
     tickets = list(get_ticket_collection().find())
@@ -62,41 +73,84 @@ def delete_ticket(request, ticket_id):
     get_ticket_collection().delete_one({'_id': ObjectId(ticket_id)})
     return redirect('ticket-list')
 
-# List all shortcuts
+
+
+
+@jwt_required
+@agent_or_superadmin_required
 def shortcut_list(request):
-    shortcuts = list(get_shortcut_collection().find())
-    for s in shortcuts:
-        s['id'] = str(s['_id'])  # add 'id' as string of '_id'
-    return render(request, 'support/shortcut_list.html', {'shortcuts': shortcuts})
+    if request.method == 'GET':
+        shortcuts = list(get_shortcut_collection().find())
+        for s in shortcuts:
+            s['id'] = str(s['_id'])
+            s.pop('_id', None)  # remove raw Mongo _id
+        return JsonResponse({'shortcuts': shortcuts}, status=200)
 
-
-import random
-def get_random_color():
-    colors = ['#FF5733', '#33FF57', '#3357FF', '#F39C12', '#9B59B6', '#1ABC9C']
-    return random.choice(colors)
+    return JsonResponse({'error': 'Invalid request method'}, status=400)
 
 
 
+@jwt_required
+@agent_or_superadmin_required
+def shortcut_detail(request, shortcut_id):
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+    shortcut_collection = get_shortcut_collection()
+    shortcut = shortcut_collection.find_one({'shortcut_id': shortcut_id})
+
+    if not shortcut:
+        return JsonResponse({'error': 'Shortcut not found'}, status=404)
+
+    # Convert ObjectId fields to strings if needed
+    shortcut['_id'] = str(shortcut['_id'])
+    shortcut['created_at'] = str(shortcut.get('created_at'))
+    shortcut['updated_at'] = str(shortcut.get('updated_at')) if shortcut.get('updated_at') else None
+
+    return JsonResponse({'success': True, 'shortcut': shortcut})
+
+
+
+@jwt_required
+# @agent_or_superadmin_required
 def add_shortcut(request):
     if request.method == 'POST':
-        title = request.POST.get('title')
-        content = request.POST.get('content')
-        add_tags = request.POST.get('add_tags', '').split(',')
-        remove_tags = request.POST.get('remove_tags', '').split(',')
-        suggested_messages = request.POST.get('suggested_messages', '').split('\n')
+        try:
+            data = json.loads(request.body.decode('utf-8'))
+        except json.JSONDecodeError:
+            return JsonResponse({'error': 'Invalid JSON format'}, status=400)
 
-        shortcut_id = str(ObjectId())
+        title = data.get('title', '').strip()
+        content = data.get('content', '').strip()
 
-        # Clean tags
+        if not title or not content:
+            logger.warning("Shortcut creation failed: 'title' or 'content' missing")
+            return JsonResponse({
+                'success': False,
+                'message': "Both 'title' and 'content' are required."
+            }, status=400)
+
+        add_tags = data.get('add_tags', '').split(',')
+        remove_tags = data.get('remove_tags', '').split(',')
+        suggested_messages = data.get('suggested_messages', '').split('\n')
+
         add_tags = [tag.strip() for tag in add_tags if tag.strip()]
         remove_tags = [tag.strip() for tag in remove_tags if tag.strip()]
         suggested_messages = [msg.strip() for msg in suggested_messages if msg.strip()]
 
-        # Add tags to tag collection if they don't exist
+        shortcut_collection = get_shortcut_collection()
+
+        # Check for duplicate title
+        if shortcut_collection.find_one({'title': title}):
+            logger.info(f"Shortcut not created: title '{title}' already exists")
+            return JsonResponse({
+                'success': False,
+                'message': f"A shortcut with the title '{title}' already exists."
+            }, status=400)
+
         tag_collection = get_tag_collection()
         for tag in add_tags:
-            existing = tag_collection.find_one({'name': tag})
-            if not existing:
+            if not tag_collection.find_one({'name': tag}):
                 tag_collection.insert_one({
                     'tag_id': str(ObjectId()),
                     'name': tag,
@@ -104,11 +158,15 @@ def add_shortcut(request):
                     'created_at': timezone.now()
                 })
 
-        # Prepare shortcut document
+        shortcut_id = str(ObjectId())
+        admin_id = request.jwt_user.get('admin_id')
+
         shortcut_data = {
             'shortcut_id': shortcut_id,
             'title': title,
             'content': content,
+            'admin_id': admin_id,
+            'tags': add_tags,
             'created_at': timezone.now(),
             'action': {
                 'add_tags': add_tags,
@@ -117,74 +175,282 @@ def add_shortcut(request):
             'suggested_messages': suggested_messages
         }
 
-        get_shortcut_collection().insert_one(shortcut_data)
-        return redirect('shortcut-list')
+        shortcut_collection.insert_one(shortcut_data)
 
-    return render(request, 'support/add_shortcut.html')
+        logger.info(f"Shortcut created by admin_id={admin_id} | title='{title}' | shortcut_id={shortcut_id}")
 
-
-
-# Edit a shortcut
-def edit_shortcut(request, shortcut_id):
-    shortcut = get_shortcut_collection().find_one({'_id': ObjectId(shortcut_id)})
-    if request.method == 'POST':
-        get_shortcut_collection().update_one({'_id': ObjectId(shortcut_id)}, {
-            '$set': {
-                'title': request.POST.get('title'),
-                'content': request.POST.get('content'),
-                'updated_at': timezone.now()
+        return JsonResponse({
+            'success': True,
+            'message': 'Shortcut added successfully',
+            'shortcut_id': shortcut_id,
+            'shortcut_data': {
+                'title': title,
+                'content': content,
+                'admin_id': admin_id,
+                'tags': add_tags,
+                'created_at': timezone.now(),
+                'action': {
+                    'add_tags': add_tags,
+                    'remove_tags': remove_tags
+                },
+                'suggested_messages': suggested_messages
             }
         })
-        return redirect('shortcut-list')
-    return render(request, 'support/edit_shortcut.html', {'shortcut': shortcut})
 
-# Delete a shortcut
+    return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+
+@jwt_required
+@agent_or_superadmin_required
+def edit_shortcut(request, shortcut_id):
+    if request.method != 'PATCH':
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+
+    shortcut_col = get_shortcut_collection()
+    shortcut = shortcut_col.find_one({'shortcut_id': shortcut_id})
+    if not shortcut:
+        return JsonResponse({'error': 'Shortcut not found'}, status=404)
+
+    def parse_tags(value):
+        if isinstance(value, list):
+            return [v.strip() for v in value if v and str(v).strip()]
+        return [v.strip() for v in str(value).split(',') if v.strip()]
+
+    update_doc = {}
+
+    # ---- Title Check ----
+    title = data.get('title')
+    if title is not None:
+        title = title.strip()
+        if not title:
+            return JsonResponse({'error': "'title' cannot be empty"}, status=400)
+        if shortcut_col.find_one({'title': title, 'shortcut_id': {'$ne': shortcut_id}}):
+            return JsonResponse({'error': f"Another shortcut already uses title '{title}'"}, status=400)
+        update_doc['title'] = title
+
+    # ---- Content Check ----
+    content = data.get('content')
+    if content is not None:
+        content = content.strip()
+        if not content:
+            return JsonResponse({'error': "'content' cannot be empty"}, status=400)
+        if shortcut_col.find_one({'content': content, 'shortcut_id': {'$ne': shortcut_id}}):
+            return JsonResponse({'error': f"Another shortcut already uses this content"}, status=400)
+        update_doc['content'] = content
+
+    # ---- Tags ----
+    if 'tags' in data:
+        update_doc['tags'] = parse_tags(data['tags'])
+
+    # ---- Action Tags ----
+    action_update = {}
+    if 'add_tags' in data:
+        action_update['add_tags'] = parse_tags(data['add_tags'])
+    if 'remove_tags' in data:
+        action_update['remove_tags'] = parse_tags(data['remove_tags'])
+
+    if action_update:
+        current_action = shortcut.get('action', {})
+        current_action.update(action_update)
+        update_doc['action'] = current_action
+
+    # ---- Suggested Messages ----
+    if 'suggested_messages' in data:
+        messages = data['suggested_messages']
+        if isinstance(messages, list):
+            clean_messages = [m.strip() for m in messages if m and str(m).strip()]
+        else:
+            clean_messages = [m.strip() for m in str(messages).split('\n') if m.strip()]
+        update_doc['suggested_messages'] = clean_messages
+
+    # Always set updated_at even if no other fields were updated
+    update_doc['updated_at'] = timezone.now()
+
+    if len(update_doc) == 1:  # Only 'updated_at' was set
+        return JsonResponse({'success': False, 'message': 'No editable fields supplied'}, status=400)
+
+    shortcut_col.update_one({'shortcut_id': shortcut_id}, {'$set': update_doc})
+
+    logger.info(
+        f"[Shortcut Updated] shortcut_id={shortcut_id} by admin_id={request.jwt_user.get('admin_id')} | fields_updated={list(update_doc.keys())}"
+    )
+
+    return JsonResponse({'success': True, 'message': 'Shortcut updated successfully'})
+
+
+@jwt_required
+@agent_or_superadmin_required
 def delete_shortcut(request, shortcut_id):
-    get_shortcut_collection().delete_one({'_id': ObjectId(shortcut_id)})
-    return redirect('shortcut-list')
+    delete_result = get_shortcut_collection().delete_one({'shortcut_id': shortcut_id})
+
+    if delete_result.deleted_count == 1:
+        return JsonResponse({'success': True, 'message': 'Shortcut deleted successfully'})
+    else:
+        return JsonResponse({'error': 'Shortcut not found'}, status=404)
 
 
-# List all tags
+
+
+
+@jwt_required
+@agent_or_superadmin_required
 def tag_list(request):
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
+
     tags = list(get_tag_collection().find())
     for t in tags:
         t['id'] = str(t['_id'])
-    return render(request, 'support/tag_list.html', {'tags': tags})
+        t['_id'] = str(t['_id'])
+        t['created_at'] = str(t.get('created_at'))
+        if 'updated_at' in t:
+            t['updated_at'] = str(t['updated_at'])
+    return JsonResponse({'success': True, 'tags': tags})
 
-# Add a new tag
+
+
+@jwt_required
+@agent_or_superadmin_required
+def tag_detail(request, tag_id):
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+    try:
+        tag = get_tag_collection().find_one({'tag_id': tag_id})
+    except Exception:
+        return JsonResponse({'error': 'Invalid tag ID format'}, status=400)
+
+    if not tag:
+        return JsonResponse({'error': 'Tag not found'}, status=404)
+
+    tag['_id'] = str(tag['_id'])
+    tag['created_at'] = str(tag.get('created_at'))
+    if 'updated_at' in tag:
+        tag['updated_at'] = str(tag['updated_at'])
+
+    return JsonResponse({'success': True, 'tag': tag})
+
+
+
+
+@jwt_required
+@agent_or_superadmin_required
 def add_tag(request):
-    if request.method == 'POST':
-        name = request.POST.get('name')
-        color = request.POST.get('color') or "#cccccc"
-        tag_id = str(ObjectId())
-        
-        get_tag_collection().insert_one({
-            'tag_id': tag_id,
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method. Use POST.'}, status=400)
+
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+
+    name = data.get('name', '').strip()
+    color = data.get('color', '#cccccc').strip()
+
+    if not name:
+        return JsonResponse({'error': "'name' is required"}, status=400)
+
+    tag_collection = get_tag_collection()
+
+    # Optional: prevent duplicate tag names
+    if tag_collection.find_one({'name': name}):
+        return JsonResponse({'error': f"Tag with name '{name}' already exists"}, status=409)
+
+    tag_id = str(ObjectId())
+    tag = {
+        'tag_id': tag_id,
+        'name': name,
+        'color': color,
+        'created_at': timezone.now()
+    }
+
+    tag_collection.insert_one(tag)
+
+    return JsonResponse({
+        'success': True,
+        'message': 'Tag added successfully',
+        'tag_id': tag_id,
+        'tag': {
             'name': name,
             'color': color,
-            'created_at': timezone.now()
-        })
-        return redirect('tag-list')
-    return render(request, 'support/add_tag.html')
+            'created_at': str(tag['created_at'])
+        }
+    }, status=201)
 
-# Edit a tag
+
+
+@jwt_required
+@agent_or_superadmin_required
 def edit_tag(request, tag_id):
-    tag = get_tag_collection().find_one({'_id': ObjectId(tag_id)})
-    if request.method == 'POST':
-        get_tag_collection().update_one({'_id': ObjectId(tag_id)}, {
-            '$set': {
-                'name': request.POST.get('name'),
-                'color': request.POST.get('color') or "#cccccc",
-                'updated_at': timezone.now()
-            }
-        })
-        return redirect('tag-list')
-    return render(request, 'support/edit_tag.html', {'tag': tag})
+    if request.method != 'PATCH':
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
 
-# Delete a tag
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+
+    name = data.get('name', '').strip()
+    color = data.get('color', '#cccccc').strip()
+
+    if not name:
+        return JsonResponse({'error': "'name' is required"}, status=400)
+
+    tag_collection = get_tag_collection()
+
+    # ✅ Prevent duplicate tag name (excluding current tag_id)
+    if tag_collection.find_one({'name': name, 'tag_id': {'$ne': tag_id}}):
+        return JsonResponse({'error': f"Tag with name '{name}' already exists"}, status=409)
+
+    # ✅ Perform update
+    updated_at = timezone.now()
+    result = tag_collection.update_one(
+        {'tag_id': tag_id},
+        {
+            '$set': {
+                'name': name,
+                'color': color,
+                'updated_at': updated_at
+            }
+        }
+    )
+
+    if result.modified_count == 0:
+        return JsonResponse({'error': 'Tag not found or not modified'}, status=404)
+
+    # ✅ Return updated tag
+    updated_tag = tag_collection.find_one({'tag_id': tag_id})
+    updated_tag['_id'] = str(updated_tag['_id'])
+    updated_tag['created_at'] = str(updated_tag.get('created_at', ''))
+    updated_tag['updated_at'] = str(updated_tag.get('updated_at', ''))
+
+    return JsonResponse({
+        'success': True,
+        'message': 'Tag updated successfully',
+        'tag': updated_tag
+    }, status=200)
+
+
+
+@jwt_required
+@agent_or_superadmin_required
 def delete_tag(request, tag_id):
-    get_tag_collection().delete_one({'_id': ObjectId(tag_id)})
-    return redirect('tag-list')
+    if request.method != 'DELETE':
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+    result = get_tag_collection().delete_one({'tag_id': tag_id})
+    if result.deleted_count == 0:
+        return JsonResponse({'error': 'Tag not found'}, status=404)
+
+    return JsonResponse({'success': True, 'message': 'Tag deleted successfully'})
+
+
+
 
 import json
 
