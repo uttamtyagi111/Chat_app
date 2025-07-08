@@ -294,318 +294,144 @@ def get_widget(request, widget_id=None):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
-@csrf_exempt
-@require_http_methods(["PATCH"])
-@jwt_required
-def update_widget(request, widget_id):
-    try:
-        # Add debug logging
-        logger.info(f"Update widget request for widget_id: {widget_id}")
-        logger.info(f"Request content type: {request.content_type}")
-        logger.info(f"Request method: {request.method}")
-        
-        user = request.jwt_user
-        role = user.get("role")
-        admin_id = user.get("admin_id")
-        
-        logger.info(f"User role: {role}, admin_id: {admin_id}")
 
-        widget_collection = get_widget_collection()
-        widget = widget_collection.find_one({"widget_id": widget_id})
-        if not widget:
-            logger.error(f"Widget not found: {widget_id}")
-            return JsonResponse({"error": "Widget not found"}, status=404)
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, parsers
+from django.conf import settings
+from django.utils.timezone import now
+from authentication.jwt_auth import JWTAuthentication
+from wish_bot.db import get_widget_collection, get_admin_collection
+from botocore.exceptions import ClientError
+import boto3
+import uuid
+import logging
 
-        # Initialize data dictionary
-        data = {}
-        is_multipart = request.content_type and 'multipart/form-data' in request.content_type
-        
-        logger.info(f"Is multipart request: {is_multipart}")
+logger = logging.getLogger(__name__)
 
-        if is_multipart:
-            # Handle multipart form data
-            data = request.POST.dict()
-            logger.info(f"POST data: {data}")
-            logger.info(f"FILES data: {list(request.FILES.keys())}")
-            
-            # If POST data is empty but we have files, this might be a file-only upload
-            if not data and not request.FILES:
-                logger.warning("Multipart request with no POST data and no files")
-                return JsonResponse({"error": "No data provided in multipart request"}, status=400)
-            
-            # Convert string boolean values to actual booleans
-            bool_fields = ['is_active', 'enableAttentionGrabber', 'soundEnabled']
-            for field in bool_fields:
-                if field in data:
-                    data[field] = data[field].lower() == 'true'
-            
-            # Handle nested settings if they come as separate form fields
-            settings_data = {}
-            settings_fields = ['position', 'primaryColor', 'logo', 'enableAttentionGrabber', 
-                             'attentionGrabber', 'welcomeMessage', 'offlineMessage', 'soundEnabled']
-            
-            for field in settings_fields:
-                if field in data:
-                    settings_data[field] = data[field]
-            
-            if settings_data:
-                data['settings'] = settings_data
-            
-            # If we still have no data but we have files, create empty settings to allow file uploads
-            if not data and request.FILES:
-                data = {'settings': {}}
-                
-        else:
-            # Handle JSON data
-            if request.body:
-                try:
-                    data = json.loads(request.body)
-                    logger.info(f"JSON data: {data}")
-                except json.JSONDecodeError as e:
-                    logger.error(f"JSON decode error: {e}")
-                    return JsonResponse({"error": "Invalid JSON data"}, status=400)
-            else:
-                logger.warning("Empty request body")
+class UpdateWidgetAPIView(APIView):
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
+    authentication_classes = [JWTAuthentication]
 
-        # Common fields to update
-        updated_fields = {
-            "updated_at": datetime.utcnow(),
-            "widget_id": widget["widget_id"],
-            "created_at": widget["created_at"]
-        }
-
-        # Fetch current settings with better error handling
-        current_settings = widget.get("settings", {})
-        incoming_settings = data.get("settings", {})
-        
-        logger.info(f"Current settings: {current_settings}")
-        logger.info(f"Incoming settings: {incoming_settings}")
-
-        # Handle logo upload to S3
-        logo_url = incoming_settings.get("logo", current_settings.get("logo", ""))
-        logo_file = request.FILES.get("logo")
-        
-        if logo_file:
-            logger.info(f"Logo file received: {logo_file.name}, size: {logo_file.size}")
-            try:
-                # Validate file size (e.g., max 5MB)
-                if logo_file.size > 5 * 1024 * 1024:
-                    return JsonResponse({'error': 'Logo file too large (max 5MB)'}, status=400)
-                
-                # Validate file type
-                allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-                if logo_file.content_type not in allowed_types:
-                    return JsonResponse({'error': 'Invalid logo file type'}, status=400)
-                
-                s3_client = boto3.client(
-                    's3',
-                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                    region_name=settings.AWS_S3_REGION_NAME
-                )
-                bucket_name = settings.AWS_STORAGE_BUCKET_NAME
-                file_name = f"chat_logos/{uuid.uuid4()}/{logo_file.name}"
-
-                s3_client.upload_fileobj(
-                    logo_file,
-                    bucket_name,
-                    file_name,
-                    ExtraArgs={'ContentType': logo_file.content_type}
-                )
-                logo_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
-                logger.info(f"Logo uploaded successfully: {logo_url}")
-                
-            except ClientError as e:
-                logger.error(f"S3 client error during logo upload: {str(e)}", exc_info=True)
-                return JsonResponse({'error': f'S3 upload failed: {str(e)}'}, status=500)
-            except Exception as e:
-                logger.error(f"Logo upload failed: {str(e)}", exc_info=True)
-                return JsonResponse({'error': f'Failed to upload logo: {str(e)}'}, status=500)
-
-        # Handle attention grabber (upload or URL)
-        attention_grabber_file = request.FILES.get("attentionGrabber")
-        attention_grabber_url = incoming_settings.get("attentionGrabber", current_settings.get("attentionGrabber", ""))
-
-        if attention_grabber_file:
-            logger.info(f"Attention grabber file received: {attention_grabber_file.name}, size: {attention_grabber_file.size}")
-            try:
-                # Validate file size (e.g., max 10MB for attention grabber)
-                if attention_grabber_file.size > 10 * 1024 * 1024:
-                    return JsonResponse({'error': 'Attention grabber file too large (max 10MB)'}, status=400)
-                
-                # Validate file type for attention grabber (could be image or video)
-                allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm']
-                if attention_grabber_file.content_type not in allowed_types:
-                    return JsonResponse({'error': 'Invalid attention grabber file type'}, status=400)
-                
-                s3_client = boto3.client(
-                    's3',
-                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-                    region_name=settings.AWS_S3_REGION_NAME
-                )
-                bucket_name = settings.AWS_STORAGE_BUCKET_NAME
-                file_name = f"attentionGrabbers/{uuid.uuid4()}/{attention_grabber_file.name}"
-
-                s3_client.upload_fileobj(
-                    attention_grabber_file,
-                    bucket_name,
-                    file_name,
-                    ExtraArgs={'ContentType': attention_grabber_file.content_type}
-                )
-                attention_grabber_url = f"https://{bucket_name}.s3.amazonaws.com/{file_name}"
-                logger.info(f"Attention grabber uploaded successfully: {attention_grabber_url}")
-                
-            except ClientError as e:
-                logger.error(f"S3 client error during attention grabber upload: {str(e)}", exc_info=True)
-                return JsonResponse({'error': f'S3 upload failed: {str(e)}'}, status=500)
-            except Exception as e:
-                logger.error(f"Attention grabber upload failed: {str(e)}", exc_info=True)
-                return JsonResponse({'error': f'Failed to upload attention grabber: {str(e)}'}, status=500)
-
-        # Build updated settings with uploaded files
-        updated_settings = {
-            "position": incoming_settings.get("position", current_settings.get("position", "right")),
-            "primaryColor": incoming_settings.get("primaryColor", current_settings.get("primaryColor", "#10B981")),
-            "logo": logo_url,
-            "enableAttentionGrabber": incoming_settings.get("enableAttentionGrabber", current_settings.get("enableAttentionGrabber", False)),
-            "attentionGrabber": attention_grabber_url,
-            "welcomeMessage": incoming_settings.get("welcomeMessage", current_settings.get("welcomeMessage", "")),
-            "offlineMessage": incoming_settings.get("offlineMessage", current_settings.get("offlineMessage", "")),
-            "soundEnabled": incoming_settings.get("soundEnabled", current_settings.get("soundEnabled", True)),
-        }
-        
-        logger.info(f"Updated settings: {updated_settings}")
-
-        # Generate updated widget code with new settings
+    def patch(self, request, widget_id):
         try:
-            updated_widget_code = generate_widget_code(
-                widget_id=widget_id,
-                request=request,
-                theme_color=updated_settings.get("primaryColor", "#10B981"),
-                logo_url=updated_settings.get("logo", ""),
-                position=updated_settings.get("position", "right")
-            )
-            logger.info("Widget code generated successfully")
-        except Exception as e:
-            logger.error(f"Failed to generate widget code: {str(e)}", exc_info=True)
-            return JsonResponse({'error': f'Failed to generate widget code: {str(e)}'}, status=500)
+            logger.info(f"[UpdateWidgetAPIView] PATCH update request for widget_id: {widget_id}")
+            logger.info(f"Request data: {request.data}")
+            logger.info(f"Files: {request.FILES}")
 
-        # Update base domain and direct chat link
-        host = request.get_host()
-        if host.startswith("localhost"):
-            base_domain = "http://localhost:8000"
-        elif host.startswith("127.0.0.1"):
-            base_domain = "http://127.0.0.1:8000"
-        else:
-            # Use HTTPS for production
-            base_domain = f"https://{host}"
-        
-        direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}"
-        
-        logger.info(f"Base domain: {base_domain}, Direct chat link: {direct_chat_link}")
+            # Get user info from token
+            user = request.user
+            role = user.get("role")
+            admin_id = user.get("admin_id")
+            logger.info(f"Authenticated user role: {role}, admin_id: {admin_id}")
 
-        # Add widget code and direct chat link to updated fields
-        updated_fields.update({
-            "widget_code": updated_widget_code,
-            "direct_chat_link": direct_chat_link
-        })
+            widget_collection = get_widget_collection()
+            widget = widget_collection.find_one({"widget_id": widget_id})
+            if not widget:
+                return Response({"error": "Widget not found"}, status=404)
 
-        if role == "superadmin":
-            logger.info("Processing superadmin update")
-            # Superadmin: full update
-            widget_type = data.get("widget_type", widget.get("widget_type"))
-            domain = data.get("domain", widget.get("domain", base_domain))
-            name = data.get("name", widget.get("name"))
-            is_active = data.get("is_active", widget.get("is_active"))
-
-            if not widget_type or not name:
-                logger.error("Missing required fields for superadmin update")
-                return JsonResponse({"error": "Missing required fields: widget_type or name"}, status=400)
-
-            # Check for duplicates
-            duplicate = widget_collection.find_one({
-                "widget_type": widget_type,
-                "domain": domain,
-                "name": name,
-                "widget_id": {"$ne": widget_id}
-            })
-            if duplicate:
-                logger.error(f"Duplicate widget found: {duplicate['widget_id']}")
-                return JsonResponse({"error": "Widget with same name and type already exists."}, status=400)
-
-            updated_fields.update({
-                "widget_type": widget_type,
-                "domain": domain,
-                "name": name,
-                "is_active": is_active,
-                "settings": updated_settings
-            })
-
-        elif role == "agent":
-            logger.info("Processing agent update")
-            # Agent: must be assigned to the widget
-            try:
-                from wish_bot.db import get_admin_collection
+            # Check permissions
+            if role == "agent":
                 admin = get_admin_collection().find_one({"admin_id": admin_id})
-                if not admin:
-                    logger.error(f"Admin not found: {admin_id}")
-                    return JsonResponse({"error": "Admin not found"}, status=404)
-                
-                assigned_widgets = admin.get("assigned_widgets", [])
-                logger.info(f"Agent assigned widgets: {assigned_widgets}")
+                if not admin or widget_id not in admin.get("assigned_widgets", []):
+                    logger.warning("Agent is not authorized to update this widget")
+                    return Response({"error": "You are not authorized to update this widget"}, status=403)
 
-                if widget_id not in assigned_widgets:
-                    logger.error(f"Agent {admin_id} not authorized for widget {widget_id}")
-                    return JsonResponse({"error": "You are not authorized to update this widget"}, status=403)
+            settings_data = widget.get("settings", {})
+            incoming = request.data
 
-                # Allow settings only
-                updated_fields["settings"] = updated_settings
-                
-            except Exception as e:
-                logger.error(f"Error checking agent permissions: {str(e)}", exc_info=True)
-                return JsonResponse({"error": "Error checking permissions"}, status=500)
+            # Handle file uploads
+            def upload_to_s3(file_obj, folder, max_size_mb, allowed_types):
+                if file_obj.size > max_size_mb * 1024 * 1024:
+                    raise ValueError(f"File too large (max {max_size_mb}MB)")
+                if file_obj.content_type not in allowed_types:
+                    raise ValueError("Invalid file type")
 
-        else:
-            logger.error(f"Unauthorized role: {role}")
-            return JsonResponse({"error": "Unauthorized role"}, status=403)
+                s3_client = boto3.client(
+                    "s3",
+                    aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                    region_name=settings.AWS_S3_REGION_NAME,
+                )
+                file_name = f"{folder}/{uuid.uuid4()}/{file_obj.name}"
+                s3_client.upload_fileobj(
+                    file_obj,
+                    settings.AWS_STORAGE_BUCKET_NAME,
+                    file_name,
+                    ExtraArgs={'ContentType': file_obj.content_type}
+                )
+                return f"https://{settings.AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/{file_name}"
 
-        # Update DB
-        logger.info(f"Updating widget in database: {widget_id}")
-        try:
-            result = widget_collection.update_one(
-                {"widget_id": widget_id}, 
-                {"$set": updated_fields}
-            )
-            if result.matched_count == 0:
-                logger.error(f"Widget not found during update: {widget_id}")
-                return JsonResponse({"error": "Widget not found"}, status=404)
-            
-            logger.info(f"Widget updated successfully: {widget_id}, modified: {result.modified_count}")
-            
+            # Upload logo
+            logo_url = settings_data.get("logo", "")
+            if "logo" in request.FILES:
+                try:
+                    logo_url = upload_to_s3(
+                        request.FILES["logo"],
+                        "chat_logos",
+                        max_size_mb=5,
+                        allowed_types=["image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"]
+                    )
+                except ValueError as ve:
+                    return Response({"error": str(ve)}, status=400)
+
+            # Upload attention grabber
+            grabber_url = settings_data.get("attentionGrabber", "")
+            if "attentionGrabber" in request.FILES:
+                try:
+                    grabber_url = upload_to_s3(
+                        request.FILES["attentionGrabber"],
+                        "attentionGrabbers",
+                        max_size_mb=10,
+                        allowed_types=["image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "video/mp4", "video/webm"]
+                    )
+                except ValueError as ve:
+                    return Response({"error": str(ve)}, status=400)
+
+            # Update settings
+            updated_settings = {
+                "position": incoming.get("position", settings_data.get("position", "right")),
+                "primaryColor": incoming.get("primaryColor", settings_data.get("primaryColor", "#10B981")),
+                "logo": logo_url,
+                "enableAttentionGrabber": incoming.get("enableAttentionGrabber", settings_data.get("enableAttentionGrabber", False)) in [True, "true", "True"],
+                "attentionGrabber": grabber_url,
+                "welcomeMessage": incoming.get("welcomeMessage", settings_data.get("welcomeMessage", "")),
+                "offlineMessage": incoming.get("offlineMessage", settings_data.get("offlineMessage", "")),
+                "soundEnabled": incoming.get("soundEnabled", settings_data.get("soundEnabled", True)) in [True, "true", "True"],
+            }
+
+            # Update main widget fields
+            updated_fields = {
+                "updated_at": now(),
+                "settings": updated_settings
+            }
+
+            if role == "superadmin":
+                updated_fields.update({
+                    "name": incoming.get("name", widget.get("name")),
+                    "widget_type": incoming.get("widget_type", widget.get("widget_type")),
+                    "domain": incoming.get("domain", widget.get("domain")),
+                    "is_active": incoming.get("is_active", widget.get("is_active")) in [True, "true", "True"]
+                })
+
+            widget_collection.update_one({"widget_id": widget_id}, {"$set": updated_fields})
+            logger.info(f"[UpdateWidgetAPIView] Widget {widget_id} updated successfully")
+
+            return Response({
+                "message": "Widget updated successfully",
+                "widget_id": widget_id,
+                "settings": updated_settings
+            }, status=200)
+
+        except ClientError as e:
+            logger.error(f"[S3 Upload] ClientError: {str(e)}", exc_info=True)
+            return Response({"error": "S3 upload failed", "details": str(e)}, status=500)
+
         except Exception as e:
-            logger.error(f"Database update failed: {str(e)}", exc_info=True)
-            return JsonResponse({"error": "Database update failed"}, status=500)
+            logger.error(f"[UpdateWidgetAPIView] Unexpected error: {str(e)}", exc_info=True)
+            return Response({"error": "Unexpected server error", "details": str(e)}, status=500)
 
-        # Prepare response
-        response_data = {
-            "widget_id": widget_id,
-            "widget_type": updated_fields.get("widget_type", widget.get("widget_type")),
-            "domain": updated_fields.get("domain", widget.get("domain", base_domain)),
-            "name": updated_fields.get("name", widget.get("name")),
-            "is_active": updated_fields.get("is_active", widget.get("is_active")),
-            "settings": updated_fields.get("settings", widget.get("settings")),
-            "updated_at": updated_fields["updated_at"].isoformat(),
-            "direct_chat_link": direct_chat_link,
-            "widget_code": updated_widget_code,
-        }
-        
-        logger.info(f"Returning successful response for widget: {widget_id}")
-        return JsonResponse(response_data, status=200)
 
-    except Exception as e:
-        logger.exception("Unexpected error in update_widget")
-        return JsonResponse({"error": f"Internal server error: {str(e)}"}, status=500) 
     
 @csrf_exempt
 @jwt_required
