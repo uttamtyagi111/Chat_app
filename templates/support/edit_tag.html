@@ -1,7 +1,0 @@
-<h2>Edit Tag</h2>
-<form method="POST">
-  {% csrf_token %}
-  <input type="text" name="name" value="{{ tag.name }}" required><br>
-  <input type="color" name="color" value="{{ tag.color }}"><br>
-  <button type="submit">Update</button>
-</form>
