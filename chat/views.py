@@ -1,8 +1,11 @@
+from rest_framework import status, parsers
+from django.utils.timezone import now
+from authentication.jwt_auth import JWTAuthentication
+from wish_bot.db import get_widget_collection, get_admin_collection
 from gc import enable
 from authentication.utils import jwt_required,superadmin_required
 from wish_bot.db import get_admin_collection, get_room_collection,get_agent_notes_collection,get_contact_collection
-from wish_bot.db import get_widget_collection,insert_with_timestamps
-from wish_bot.db import get_chat_collection
+from wish_bot.db import get_widget_collection,insert_with_timestamps,get_chat_collection
 from datetime import datetime, timedelta
 from utils.redis_client import redis_client
 from django.shortcuts import render
@@ -53,172 +56,6 @@ def public_widget_settings(request, widget_id):
         return JsonResponse({"error": str(e)}, status=500)
 
 
-# @require_GET
-# @csrf_exempt
-# @jwt_required
-# def get_widget(request, widget_id=None):
-#     try:
-#         user = request.jwt_user  
-#         role = user.get("role")
-#         admin_id = user.get("admin_id")
-
-#         widget_collection = get_widget_collection()
-#         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
-
-#         def format_widget(widget):
-#             return {
-#                 "widget_id": widget["widget_id"],
-#                 "widget_type": widget["widget_type"],
-#                 "domain": widget.get("domain", "http://localhost:9000"),
-#                 "name": widget["name"],
-#                 "is_active": widget.get("is_active", False),
-#                 "created_at": str(widget.get("created_at", "")),
-#                 "updated_at": str(widget.get("updated_at", "")),
-#                 "settings": widget.get("settings", {
-#                     "position": "position",
-#                     "logo": "logo",
-#                     "primaryColor": "#10B981",
-#                     "enableAttentionGrabber": "enable_attention_grabber",
-#                     "attentionGrabber": "attention_grabber",
-#                     "welcomeMessage": "",
-#                     "offlineMessage": "",
-#                     "soundEnabled": True
-#                 }),
-#                 "direct_chat_link": f"{base_domain}/direct-chat/{widget['widget_id']}"
-#             }
-
-#         if widget_id:
-#             widget = widget_collection.find_one({"widget_id": widget_id})
-#             if not widget:
-#                 return JsonResponse({"error": "Widget not found"}, status=404)
-
-#             if role == "agent":
-#                 agent = get_admin_collection().find_one({"admin_id": admin_id})
-#                 assigned_widgets = agent.get("assigned_widgets", [])
-#                 if widget_id not in assigned_widgets:
-#                     return JsonResponse({"error": "Access denied to this widget"}, status=403)
-
-#             return JsonResponse(format_widget(widget), status=200)
-
-#         # Get all widgets based on role
-#         if role == "superadmin":
-#             widgets = widget_collection.find()
-#         elif role == "agent":
-#             agent = get_admin_collection().find_one({"admin_id": admin_id})
-#             assigned_widgets = agent.get("assigned_widgets", [])
-#             widgets = widget_collection.find({"widget_id": {"$in": assigned_widgets}})
-#         else:
-#             return JsonResponse({"error": "Unauthorized role"}, status=403)
-
-#         return JsonResponse({"widgets": [format_widget(w) for w in widgets]}, status=200)
-    
-#     except Exception as e:
-#         return JsonResponse({"error": str(e)}, status=500)
-
-
-
-# @csrf_exempt
-# @require_http_methods(["PATCH"])
-# @jwt_required
-# def update_widget(request, widget_id):
-#     try:
-#         user = request.jwt_user
-#         role = user.get("role")
-#         admin_id = user.get("admin_id")
-
-#         widget_collection = get_widget_collection()
-#         widget = widget_collection.find_one({"widget_id": widget_id})
-#         if not widget:
-#             return JsonResponse({"error": "Widget not found"}, status=404)
-
-#         data = json.loads(request.body)
-
-#         # Common fields to update
-#         updated_fields = {
-#             "updated_at": datetime.utcnow(),
-#             "widget_id": widget["widget_id"],
-#             "created_at": widget["created_at"]
-#         }
-
-#         # Fetch current settings or fallback to default
-#         current_settings = widget.get("settings", {})
-#         incoming_settings = data.get("settings", {})
-
-#         updated_settings = {
-#             "position": incoming_settings.get("position", current_settings.get("position", "right")),
-#             "primaryColor": incoming_settings.get("primaryColor", current_settings.get("primaryColor", "#10B981")),
-#             "logo": incoming_settings.get("logo", current_settings.get("logo", "")),
-#             "enableAttentionGrabber": incoming_settings.get("enableAttentionGrabber", current_settings.get("enableAttentionGrabber", False)),
-#             "attentionGrabber": incoming_settings.get("attentionGrabber", current_settings.get("attentionGrabber", "")),
-#             "welcomeMessage": incoming_settings.get("welcomeMessage", current_settings.get("welcomeMessage", "")),
-#             "offlineMessage": incoming_settings.get("offlineMessage", current_settings.get("offlineMessage", "")),
-#             "soundEnabled": incoming_settings.get("soundEnabled", current_settings.get("soundEnabled", True)),
-#         }
-
-#         if role == "superadmin":
-#             # Superadmin: full update
-#             widget_type = data.get("widget_type", widget.get("widget_type"))
-#             domain = data.get("domain", widget.get("domain", "http://localhost:8000"))
-#             name = data.get("name", widget.get("name"))
-#             is_active = data.get("is_active", widget.get("is_active"))
-
-#             if not widget_type or not name:
-#                 return JsonResponse({"error": "Missing required fields: widget_type or name"}, status=400)
-
-#             # Check for duplicates
-#             duplicate = widget_collection.find_one({
-#                 "widget_type": widget_type,
-#                 "domain" : domain,
-#                 "name": name,
-#                 "widget_id": {"$ne": widget_id}
-#             })
-#             if duplicate:
-#                 return JsonResponse({"error": "Widget with same name and type already exists."}, status=400)
-
-#             updated_fields.update({
-#                 "widget_type": widget_type,
-#                 "domain" : domain,
-#                 "name": name,
-#                 "is_active": is_active,
-#                 "settings": updated_settings
-#             })
-
-#         elif role == "agent":
-#             # Agent: must be assigned to the widget
-#             from wish_bot.db import get_admin_collection
-#             admin = get_admin_collection().find_one({"admin_id": admin_id})
-#             assigned_widgets = admin.get("assigned_widgets", [])
-
-#             if widget_id not in assigned_widgets:
-#                 return JsonResponse({"error": "You are not authorized to update this widget"}, status=403)
-
-#             # Allow settings only
-#             updated_fields["settings"] = updated_settings
-
-#         else:
-#             return JsonResponse({"error": "Unauthorized role"}, status=403)
-
-#         # Update DB
-#         widget_collection.update_one({"widget_id": widget_id}, {"$set": updated_fields})
-
-#         # Prepare response
-#         base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
-#         direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}"
-
-#         return JsonResponse({
-#             "widget_id": widget_id,
-#             "widget_type": updated_fields.get("widget_type", widget.get("widget_type")),
-#             "domain": widget.get("domain", "http://localhost:8000"),
-#             "name": updated_fields.get("name", widget.get("name")),
-#             "is_active": updated_fields.get("is_active", widget.get("is_active")),
-#             "settings": updated_fields.get("settings", widget.get("settings")),
-#             "updated_at": updated_fields["updated_at"].isoformat(),
-#             "direct_chat_link": direct_chat_link,
-#             "widget_code": generate_widget_code(widget_id, request),
-#         }, status=200)
-
-#     except Exception as e:
-#         return JsonResponse({"error": str(e)}, status=500)
 
 @require_GET
 @csrf_exempt
@@ -294,18 +131,6 @@ def get_widget(request, widget_id=None):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
-
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status, parsers
-from django.conf import settings
-from django.utils.timezone import now
-from authentication.jwt_auth import JWTAuthentication
-from wish_bot.db import get_widget_collection, get_admin_collection
-from botocore.exceptions import ClientError
-import boto3
-import uuid
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -993,62 +818,20 @@ for testing with frontend template
 
 class UserChatAPIView(APIView):
     @swagger_auto_schema(
-        operation_description="Create a new chat room for a given widget ID and IP address, and return the room ID, widget details, and user's IP geolocation",
+        operation_description="Initialize chat: create/reuse room, return widget settings, room ID, and user location",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
                 'widget_id': openapi.Schema(type=openapi.TYPE_STRING, description='Widget ID to associate the room with'),
                 'ip': openapi.Schema(type=openapi.TYPE_STRING, description='IP address of the user (sent from frontend)'),
+                'user_agent': openapi.Schema(type=openapi.TYPE_STRING, description='User agent string of the browser'),
             },
-            required=['widget_id', 'ip']
+            required=['widget_id', 'ip', 'user_agent']
         ),
         responses={
-            201: openapi.Response('Room created successfully', schema=openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'room_id': openapi.Schema(type=openapi.TYPE_STRING, description='Generated Room ID'),
-                    'widget': openapi.Schema(
-                        type=openapi.TYPE_OBJECT,
-                        properties={
-                            'widget_id': openapi.Schema(type=openapi.TYPE_STRING, description='Widget ID'),
-                            'widget_type': openapi.Schema(type=openapi.TYPE_STRING, description='Type of the widget'),
-                            'name': openapi.Schema(type=openapi.TYPE_STRING, description='Name of the widget'), 
-                            # 'color': openapi.Schema(type=openapi.TYPE_STRING, description='Color of the widget'),
-                            # 'language': openapi.Schema(type=openapi.TYPE_STRING, description='Language of the widget'),
-                        }
-                    ),
-                    'user_location': openapi.Schema(
-                        type=openapi.TYPE_OBJECT,
-                        properties={
-                            'ip': openapi.Schema(type=openapi.TYPE_STRING, description='User IP address'),
-                            'country': openapi.Schema(type=openapi.TYPE_STRING, description='User country'),
-                            'city': openapi.Schema(type=openapi.TYPE_STRING, description='User city'),
-                            'flag': openapi.Schema(
-                                type=openapi.TYPE_OBJECT,
-                                properties={
-                                    'emoji': openapi.Schema(type=openapi.TYPE_STRING, description='Country flag emoji'),
-                                    'url': openapi.Schema(type=openapi.TYPE_STRING, description='Country flag image URL'),
-                                    'country_code': openapi.Schema(type=openapi.TYPE_STRING, description='ISO country code'),
-                                }
-                            ),
-                            'region': openapi.Schema(type=openapi.TYPE_STRING, description='User region/state'),
-                            'timezone': openapi.Schema(type=openapi.TYPE_STRING, description='User timezone'),
-                        }
-                    )
-                }
-            )),
-            400: openapi.Response('Bad Request', schema=openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'error': openapi.Schema(type=openapi.TYPE_STRING, description='Error message')
-                }
-            )),
-            404: openapi.Response('Widget Not Found', schema=openapi.Schema(
-                type=openapi.TYPE_OBJECT,
-                properties={
-                    'error': openapi.Schema(type=openapi.TYPE_STRING, description='Error message')
-                }
-            ))
+            200: openapi.Response('Room initialized successfully'),
+            400: openapi.Response('Bad Request'),
+            404: openapi.Response('Widget Not Found')
         }
     )
     def post(self, request):
@@ -1060,61 +843,65 @@ class UserChatAPIView(APIView):
             return Response({"error": "Widget ID is required"}, status=status.HTTP_400_BAD_REQUEST)
         if not client_ip:
             return Response({"error": "IP address is required from frontend"}, status=status.HTTP_400_BAD_REQUEST)
-        
+
         print(f"[UserChatAPIView] Received POST - Widget ID: {widget_id}, IP: {client_ip}")
-        
-         # Parse user agent info
+
+        # Parse user agent
         user_agent = parse(user_agent_string)
         os_info = f"{user_agent.os.family} {user_agent.os.version_string}" if user_agent.os.family else "Unknown OS"
         browser_info = f"{user_agent.browser.family} {user_agent.browser.version_string}" if user_agent.browser.family else "Unknown Browser"
-        
-        # Get geolocation for given IP
+
+        # Fetch IP geolocation
         ip_info = self.get_ip_geolocation(client_ip)
 
         widget_collection = get_widget_collection()
         room_collection = get_room_collection()
-        contact_collection = get_contact_collection()  # Assuming contact collection is same as admin collection
+        contact_collection = get_contact_collection()
 
         widget = widget_collection.find_one({"widget_id": widget_id})
         if not widget:
-            print(f"[UserChatAPIView] Widget not found: {widget_id}")
             return Response({"error": "Widget not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Generate a unique room_id
-        room_id = generate_room_id()
-        while room_collection.find_one({'room_id': room_id}):
+        # Check for existing room
+        room = room_collection.find_one({"ip": client_ip, "widget_id": widget_id})
+        if room:
+            room_id = room.get("room_id")
+            contact_id = room.get("contact_id")
+            print(f"[UserChatAPIView] Reusing existing room ID: {room_id}")
+        else:
+            # Create new room
             room_id = generate_room_id()
-        print(f"[UserChatAPIView] Generated room ID: {room_id}")
-        
-        contact_id = generate_contact_id()
-        while contact_collection.find_one({'contact_id': contact_id}):
-            contact_id = generate_contact_id()
-        print(f"[UserChatAPIView] Generated contact ID: {contact_id}")
-            
-        print(f"[UserChatAPIView] Creating room with ID: {room_id}")
+            while room_collection.find_one({'room_id': room_id}):
+                room_id = generate_room_id()
 
-        room_document = {
-            'room_id': room_id,
-            'widget_id': widget_id,
-            'is_active': True,
-            'contact_id': contact_id,
-            'created_at': datetime.now(),
-            'assigned_agent': None,
-            'user_location': {
-                'user_ip': client_ip,
-                'country': ip_info.get('country', 'Unknown'),
-                'city': ip_info.get('city', 'Unknown'),
-                'region': ip_info.get('region', ''),
-                'country_code': ip_info.get('country_code', ''),
-                'timezone': ip_info.get('timezone', ''),
-                'flag_emoji': ip_info.get('flag')['emoji'] if ip_info.get('flag') else '',
-                'flag_url': ip_info.get('flag')['url'] if ip_info.get('flag') else '',
-                'os': os_info,
-                'browser': browser_info,
+            contact_id = generate_contact_id()
+            while contact_collection.find_one({'contact_id': contact_id}):
+                contact_id = generate_contact_id()
+
+            room_document = {
+                'room_id': room_id,
+                'widget_id': widget_id,
+                'ip': client_ip,
+                'is_active': True,
+                'contact_id': contact_id,
+                'created_at': datetime.utcnow(),
+                'updated_at': datetime.utcnow(),
+                'assigned_agent': None,
+                'user_location': {
+                    'user_ip': client_ip,
+                    'country': ip_info.get('country', 'Unknown'),
+                    'city': ip_info.get('city', 'Unknown'),
+                    'region': ip_info.get('region', ''),
+                    'country_code': ip_info.get('country_code', ''),
+                    'timezone': ip_info.get('timezone', ''),
+                    'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
+                    'flag_url': ip_info.get('flag', {}).get('url', ''),
+                    'os': os_info,
+                    'browser': browser_info,
+                }
             }
-        }
-        insert_with_timestamps(room_collection, room_document)
-        print(f"[UserChatAPIView] Room {room_id} inserted in DB.")
+            insert_with_timestamps(room_collection, room_document)
+            print(f"[UserChatAPIView] New room created with ID: {room_id}")
 
         response_data = {
             "room_id": room_id,
@@ -1122,8 +909,7 @@ class UserChatAPIView(APIView):
                 "widget_id": widget["widget_id"],
                 "widget_type": widget.get("widget_type"),
                 "name": widget.get("name"),
-                # "color": widget.get("color"),
-                # "language": widget.get("language", "en"),
+                "settings": widget.get("settings", {}),
             },
             "user_location": {
                 "ip": client_ip,
@@ -1131,30 +917,18 @@ class UserChatAPIView(APIView):
                 "city": ip_info.get('city', 'Unknown'),
                 "region": ip_info.get('region', ''),
                 "timezone": ip_info.get('timezone', ''),
-                'flag_emoji': ip_info.get('flag')['emoji'] if ip_info.get('flag') else '',
-                'flag_url': ip_info.get('flag')['url'] if ip_info.get('flag') else '',
-                'os': os_info,
-                'browser': browser_info,
+                "flag": ip_info.get('flag', {}),
+                "os": os_info,
+                "browser": browser_info,
             }
         }
 
-        if ip_info.get('flag'):
-            response_data["user_location"]["flag"] = ip_info['flag']
-
-        
-        print(f"[UserChatAPIView] Sending response with room_id: {room_id}")
-        return Response(response_data, status=status.HTTP_201_CREATED)
+        return Response(response_data, status=status.HTTP_200_OK)
 
     def get_client_ip(self, request):
-        """
-        Get IP address directly from frontend-provided input (not headers).
-        """
         return request.data.get("ip")
 
     def get_ip_geolocation(self, ip_address):
-        """
-        Call IPWHO API to fetch user geolocation data.
-        """
         if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1']:
             return {
                 'country': 'Local',
@@ -1198,6 +972,7 @@ class UserChatAPIView(APIView):
             'timezone': '',
             'flag': None
         }
+import uuid
 
 import requests
 from django.http import JsonResponse

@@ -112,7 +112,7 @@ def shortcut_detail(request, shortcut_id):
 
 
 @jwt_required
-# @agent_or_superadmin_required
+@agent_or_superadmin_required
 def add_shortcut(request):
     if request.method == 'POST':
         try:
@@ -130,12 +130,23 @@ def add_shortcut(request):
                 'message': "Both 'title' and 'content' are required."
             }, status=400)
 
-        add_tags = data.get('add_tags', '').split(',')
-        remove_tags = data.get('remove_tags', '').split(',')
-        suggested_messages = data.get('suggested_messages', '').split('\n')
+        # Get tags from user input - can be array or single string
+        tags_input = data.get('tags', [])
+        if isinstance(tags_input, str):
+            # If it's a string, split by comma or newline
+            tags = [tag.strip() for tag in tags_input.replace('\n', ',').split(',') if tag.strip()]
+        elif isinstance(tags_input, list):
+            # If it's already a list, just clean it up
+            tags = [tag.strip() for tag in tags_input if tag.strip()]
+        else:
+            tags = []
 
-        add_tags = [tag.strip() for tag in add_tags if tag.strip()]
-        remove_tags = [tag.strip() for tag in remove_tags if tag.strip()]
+        suggested_messages = data.get('suggested_messages', '')
+        if isinstance(suggested_messages, str):
+            suggested_messages = suggested_messages.split('\n')
+        elif not isinstance(suggested_messages, list):
+            suggested_messages = []
+        
         suggested_messages = [msg.strip() for msg in suggested_messages if msg.strip()]
 
         shortcut_collection = get_shortcut_collection()
@@ -148,8 +159,9 @@ def add_shortcut(request):
                 'message': f"A shortcut with the title '{title}' already exists."
             }, status=400)
 
+        # Create tags if they don't exist
         tag_collection = get_tag_collection()
-        for tag in add_tags:
+        for tag in tags:
             if not tag_collection.find_one({'name': tag}):
                 tag_collection.insert_one({
                     'tag_id': str(ObjectId()),
@@ -166,12 +178,8 @@ def add_shortcut(request):
             'title': title,
             'content': content,
             'admin_id': admin_id,
-            'tags': add_tags,
+            'tags': tags,
             'created_at': timezone.now(),
-            'action': {
-                'add_tags': add_tags,
-                'remove_tags': remove_tags
-            },
             'suggested_messages': suggested_messages
         }
 
@@ -187,18 +195,13 @@ def add_shortcut(request):
                 'title': title,
                 'content': content,
                 'admin_id': admin_id,
-                'tags': add_tags,
+                'tags': tags,
                 'created_at': timezone.now(),
-                'action': {
-                    'add_tags': add_tags,
-                    'remove_tags': remove_tags
-                },
                 'suggested_messages': suggested_messages
             }
         })
 
     return JsonResponse({'error': 'Invalid request method'}, status=400)
-
 
 @jwt_required
 @agent_or_superadmin_required
@@ -246,18 +249,7 @@ def edit_shortcut(request, shortcut_id):
     # ---- Tags ----
     if 'tags' in data:
         update_doc['tags'] = parse_tags(data['tags'])
-
-    # ---- Action Tags ----
-    action_update = {}
-    if 'add_tags' in data:
-        action_update['add_tags'] = parse_tags(data['add_tags'])
-    if 'remove_tags' in data:
-        action_update['remove_tags'] = parse_tags(data['remove_tags'])
-
-    if action_update:
-        current_action = shortcut.get('action', {})
-        current_action.update(action_update)
-        update_doc['action'] = current_action
+    
 
     # ---- Suggested Messages ----
     if 'suggested_messages' in data:
