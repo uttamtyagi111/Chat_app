@@ -427,7 +427,7 @@ def generate_widget_code(widget_id, request, theme_color="#ff6600", logo_url=Non
     base_domain = f"{scheme}://{host}"
 
     # Script source - hosted JS file
-    script_url = f"{base_domain}/static/js/chat_widget.js"
+    script_url = f"{base_domain}/static/js/chat_widget2.js"
 
     # Logo fallback
     if not logo_url:
@@ -796,25 +796,25 @@ chat_rooms = {}
 """
 for testing with frontend template 
 """
-# def user_chat(request):
-#     room_id = generate_room_id()
-#     room_collection = get_room_collection()
+def user_chat(request):
+    room_id = generate_room_id()
+    room_collection = get_room_collection()
 
-#     existing_room = room_collection.find_one({'room_id': room_id})
+    existing_room = room_collection.find_one({'room_id': room_id})
     
-#     while existing_room:
-#         room_id = generate_room_id()
-#         existing_room = room_collection.find_one({'room_id': room_id})
+    while existing_room:
+        room_id = generate_room_id()
+        existing_room = room_collection.find_one({'room_id': room_id})
 
-#     room_collection.insert_one({
-#         'room_id': room_id,
-#         'is_active': True,
-#         'created_at': datetime.now(),
-#         'assigned_agent': None,
+    room_collection.insert_one({
+        'room_id': room_id,
+        'is_active': True,
+        'created_at': datetime.now(),
+        'assigned_agent': None,
         
-#     })
+    })
     
-#     return render(request, 'chat/user_chat.html', {'room_id': room_id})
+    return render(request, 'chat/user_chat.html', {'room_id': room_id})
 
 class UserChatAPIView(APIView):
     @swagger_auto_schema(
@@ -894,8 +894,8 @@ class UserChatAPIView(APIView):
                     'region': ip_info.get('region', ''),
                     'country_code': ip_info.get('country_code', ''),
                     'timezone': ip_info.get('timezone', ''),
-                    'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
-                    'flag_url': ip_info.get('flag', {}).get('url', ''),
+                    # 'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
+                    # 'flag_url': ip_info.get('flag', {}).get('url', ''),
                     'os': os_info,
                     'browser': browser_info,
                 }
@@ -1141,8 +1141,8 @@ def test_ip_geolocation(request):
 #                 'country_code': ip_info.get('country_code', ''),
 #                 'timezone': ip_info.get('timezone', ''),
 #                 # 'isp': ip_info.get('isp', ''),
-#                 'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
-#                 'flag_url': ip_info.get('flag', {}).get('url', ''),
+#                 # 'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
+#                 # 'flag_url': ip_info.get('flag', {}).get('url', ''),
 #             }
 #         }
         
@@ -1167,15 +1167,15 @@ def test_ip_geolocation(request):
 #                 "city": ip_info.get('city', 'Unknown'),
 #                 "region": ip_info.get('region', ''),
 #                 "timezone": ip_info.get('timezone', ''),
-#                 'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
-#                 'flag_url': ip_info.get('flag', {}).get('url', ''),
-#                 # "isp": ip_info.get('isp', ''),
+#                 # 'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
+#                 # 'flag_url': ip_info.get('flag', {}).get('url', ''),
+#                 # # "isp": ip_info.get('isp', ''),
 #             }
 #         }
         
-#         # Add flag information if available
-#         if ip_info.get('flag'):
-#             response_data["user_location"]["flag"] = ip_info['flag']
+#         # # Add flag information if available
+#         # if ip_info.get('flag'):
+#         #     response_data["user_location"]["flag"] = ip_info['flag']
 
 #         return Response(response_data, status=status.HTTP_201_CREATED)
 

@@ -37,17 +37,22 @@ ALLOWED_HOSTS = [
 CSRF_COOKIE_SECURE = True 
 CSRF_TRUSTED_ORIGINS = [
     "https://wish-bot.onrender.com",
-    "https://localhost:5173",
-    "https://208.87.134.149",
-]
-
-
-CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "http://208.87.134.149"
+    "http://localhost:5500",
+    "http://208.87.134.149",
 ]
+
+
+# CORS_ALLOWED_ORIGINS = [
+#     "http://localhost:5173",
+#     "http://127.0.0.1:5500",
+#     "http://127.0.0.1:3000",
+#     "http://208.87.134.149"
+# ]
 CORS_ALLOW_ALL_ORIGINS = True
+
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_HEADERS = True
 
 
 CORS_ALLOW_METHODS = [
@@ -57,6 +62,19 @@ CORS_ALLOW_METHODS = [
     'PUT',
     'DELETE',
     'OPTIONS',
+    'HEAD',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
 ]
 
 
@@ -106,11 +124,11 @@ DUO_API_HOSTNAME = os.getenv("DUO_API_HOSTNAME")
 
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     # 'django.middleware.csrf.CsrfViewMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
