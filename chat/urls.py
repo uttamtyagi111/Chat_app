@@ -2,18 +2,20 @@ from django.urls import path
 from chat import views
 from django.conf import settings
 from django.conf.urls.static import static
-from chat.views import UpdateWidgetAPIView, UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView,UserChatAPIView,RoomListAPIView,RoomDetailAPIView, TestAgentAssignView
+from chat.views import AgentChatAPIView, UpdateWidgetAPIView, UploadFileAPIView,ActiveRoomsAPIView, ChatMessagesByDateAPIView,ChatMessagesAPIView,UserChatAPIView,RoomListAPIView,RoomDetailAPIView, TestAgentAssignView
 
 urlpatterns = [
     
     
     path('rooms/', RoomListAPIView.as_view(), name='room-list'),
-    path('rooms/<str:room_id>/', RoomDetailAPIView.as_view(), name='room-detail'),
+    # path('rooms/<str:room_id>/', RoomDetailAPIView.as_view(), name='room-detail'),
     path('active-rooms/', ActiveRoomsAPIView.as_view(), name='active-rooms'),
     # path('agents/',AgentListAPIView.as_view(), name='agents-list'),
     path('chatroom/', views.chat_view, name='chat_view'),
     path('test-widget/', views.test_widget_view, name='test_widget'),
-    
+    ## Room Edit API
+    path('rooms/<str:room_id>/', views.edit_room_tags, name='edit-room-tags'),
+
     ## Widget Endpoints
     path('create-widget/', views.create_widget, name='widget_view'),
     path('widget/<str:widget_id>/', views.get_widget, name='get_widget'),  # GET: Retrieve a single widget
@@ -22,7 +24,7 @@ urlpatterns = [
     path('widget/<str:widget_id>/delete/', views.delete_widget, name='delete_widget'),  # DELETE: Delete a widget
     path('direct-chat/<str:widget_id>/', views.direct_chat, name='direct_chat'),
     path('user-chat/', UserChatAPIView.as_view(), name='user_chat'),
-    path('agent-chat/<str:room_id>/', TestAgentAssignView.as_view(), name='agent_chat'),
+    path('agent-chat/<str:room_id>/', AgentChatAPIView.as_view(), name='agent_chat'),
     path('websocket-documentation/', views.websocket_documentation, name='websocket_documentation'),
     path('user-chat/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
     path('agent-chat/<str:room_id>/upload-file/', UploadFileAPIView.as_view(), name='upload_file'),
