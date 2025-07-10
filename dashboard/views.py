@@ -1,8 +1,10 @@
 from ast import Is
+from ctypes.wintypes import tagSIZE
 import token
 import traceback
 from venv import logger
 from django.http import JsonResponse
+from django.test import tag
 from pymongo.errors import DuplicateKeyError
 from utils.random_id import generate_contact_id  # Import the contact ID generator
 from wish_bot.db import  get_admin_collection, get_contact_collection, get_widget_collection # Import the contacts collection
@@ -611,6 +613,7 @@ def conversation_list(request):
                     "room_id": 1,
                     "contact_id": 1,
                     "assigned_agent": 1,
+                    "tags": 1,
                     "ip": "$user_location.user_ip",
                     "widget_id": 1,
                     "is_active": 1,
@@ -692,6 +695,7 @@ def chat_room_view(request, room_id):
 
         widget_id = room.get("widget_id")
         assigned_agent = room.get("assigned_agent")
+        tags = room.get("tags", [])
 
         # Agent access check
         if role == "agent":
@@ -718,6 +722,7 @@ def chat_room_view(request, room_id):
             'success': True,
             'messages': messages,
             'room_id': room_id,
+            'tags': tags,
             'assigned_agent': assigned_agent,
             'widget_id': widget_id,
         })

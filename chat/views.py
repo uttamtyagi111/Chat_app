@@ -5,7 +5,7 @@ from wish_bot.db import get_widget_collection, get_admin_collection
 from gc import enable
 from authentication.utils import jwt_required,superadmin_required
 from wish_bot.db import get_admin_collection, get_room_collection,get_agent_notes_collection,get_contact_collection
-from wish_bot.db import get_widget_collection,insert_with_timestamps,get_chat_collection
+from wish_bot.db import get_widget_collection,insert_with_timestamps,get_chat_collection,get_tag_collection
 from datetime import datetime, timedelta
 from utils.redis_client import redis_client
 from django.shortcuts import render
@@ -1263,6 +1263,75 @@ def test_ip_geolocation(request):
 #             # 'isp': '',
 #             'flag': None
 #         }
+ # Assuming this exists
+
+
+
+
+@csrf_exempt
+@require_http_methods(["PATCH"])
+@jwt_required
+def edit_room_tags(request, room_id):
+    try:
+        user = request.jwt_user
+        role = user.get("role")
+        admin_id = user.get("admin_id")
+
+        data = json.loads(request.body.decode("utf-8"))
+        new_tags = data.get("tags", None)
+
+        if not isinstance(new_tags, list):
+            return JsonResponse({"error": "Invalid or missing 'tags' field"}, status=400)
+
+        tag_collection = get_tag_collection()
+        room_collection = get_room_collection()
+        admin_collection = get_admin_collection()
+
+        # ✅ Validate tags against tag collection
+        valid_tags_cursor = tag_collection.find({"name": {"$in": new_tags}})
+        valid_tags = [tag["name"] for tag in valid_tags_cursor]
+
+        invalid_tags = list(set(new_tags) - set(valid_tags))
+        if invalid_tags:
+            return JsonResponse({
+                "error": "Some tags are invalid",
+                "invalid_tags": invalid_tags
+            }, status=400)
+
+        # ✅ Get room
+        room = room_collection.find_one({"room_id": room_id})
+        if not room:
+            return JsonResponse({"error": "Room not found"}, status=404)
+
+        widget_id = room.get("widget_id")
+        if not widget_id:
+            return JsonResponse({"error": "Widget ID not found in room"}, status=400)
+
+        # ✅ Access Control
+        if role != "superadmin":
+            agent_doc = admin_collection.find_one({"_id": admin_id})
+            if not agent_doc:
+                return JsonResponse({"error": "Agent not found"}, status=404)
+
+            assigned_widgets = agent_doc.get("assigned_widgets", [])
+            if widget_id not in assigned_widgets:
+                return JsonResponse({"error": "You are not authorized to edit this room"}, status=403)
+
+        # ✅ Update tags
+        room_collection.update_one(
+            {"room_id": room_id},
+            {"$set": {"tags": new_tags}}
+        )
+
+        return JsonResponse({
+            "message": "Room tags updated successfully",
+            "updated_tags": new_tags
+        }, status=200)
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON format"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
 
 
 class ActiveRoomsAPIView(APIView):
