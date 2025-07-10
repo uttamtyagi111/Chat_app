@@ -189,8 +189,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         print(f"[DEBUG] Disconnecting with close code: {close_code}")
         if hasattr(self, 'room_name'):
             # Only set room inactive status if this is a USER disconnection, not an agent
-            if not self.is_agent:
-                await self.set_room_active_status(self.room_name, False)
+            # if not self.is_agent:
+            #     await self.set_room_active_status(self.room_name, False)
             
             # Clean up Redis keys regardless of user type
             redis_client.delete(f'typing:{self.room_name}:{self.user}')

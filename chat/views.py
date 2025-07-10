@@ -1388,6 +1388,118 @@ agent_view for testing with frontend template
 #         )
 #     return render(request, 'chat/agent_chat.html', {'room_id': room_id})
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from authentication.permissions import IsAgentOrSuperAdmin
+from authentication.jwt_auth import JWTAuthentication
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+from wish_bot.db import get_room_collection, get_admin_collection
+from pymongo.errors import PyMongoError
+import logging
+
+logger = logging.getLogger(__name__)
+
+class AgentChatAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAgentOrSuperAdmin]
+
+    @extend_schema(
+        operation_id="assignAgentToRoom",
+        summary="Assign an agent to a room (agent assigns self or superadmin assigns another agent)",
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "agent_id": {"type": "string", "description": "Admin ID of the agent to assign (required for superadmin)"},
+                },
+                "example": {
+                    "agent_id": "admin_123456"
+                }
+            }
+        },
+        responses={
+            200: OpenApiResponse(response={"message": "Agent assigned successfully"}),
+            400: OpenApiResponse(description="Bad Request"),
+            403: OpenApiResponse(description="Forbidden"),
+            404: OpenApiResponse(description="Room or Agent not found"),
+            500: OpenApiResponse(description="Internal Server Error")
+        }
+    )
+    def post(self, request, room_id):
+        try:
+            user = request.user
+            role = user.get("role")
+            requester_id = user.get("admin_id")
+
+            room_collection = get_room_collection()
+            admin_collection = get_admin_collection()
+
+            # Fetch the room
+            room = room_collection.find_one({"room_id": room_id})
+            if not room:
+                return Response({"error": "Room not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            if room.get("assigned_agent"):
+                return Response({"error": "Room already has an assigned agent"}, status=status.HTTP_400_BAD_REQUEST)
+
+            room_widget_id = room.get("widget_id")
+            agent_doc = None
+            admin_id = None
+
+            # AGENT: can assign only themselves
+            if role == "agent":
+                admin_id = requester_id
+                agent_doc = admin_collection.find_one({"admin_id": admin_id, "role": "agent"})
+                if not agent_doc:
+                    return Response({"error": "Agent not found"}, status=status.HTTP_404_NOT_FOUND)
+
+                if room_widget_id not in agent_doc.get("assigned_widgets", []):
+                    return Response({"error": "You are not assigned to this widget"}, status=status.HTTP_403_FORBIDDEN)
+
+            # SUPERADMIN: can assign any agent (admin_id must be given)
+            elif role == "superadmin":
+                admin_id = request.data.get("agent_id")
+                if not admin_id:
+                    return Response({"error": "agent_id is required for superadmin"}, status=status.HTTP_400_BAD_REQUEST)
+
+                agent_doc = admin_collection.find_one({"admin_id": admin_id, "role": "agent"})
+                if not agent_doc:
+                    return Response({"error": "Agent not found"}, status=status.HTTP_404_NOT_FOUND)
+
+                if room_widget_id not in agent_doc.get("assigned_widgets", []):
+                    return Response({"error": "Agent is not assigned to this widget"}, status=status.HTTP_403_FORBIDDEN)
+
+            else:
+                return Response({"error": "Unauthorized role"}, status=status.HTTP_403_FORBIDDEN)
+
+            agent_name = agent_doc.get("name", "Agent")
+
+            # Assign agent to room: both ID and name
+            room_collection.update_one(
+                {"room_id": room_id},
+                {
+                    "$set": {
+                        "assigned_agent": admin_id,
+                        "assigned_agent_name": agent_name
+                    }
+                }
+            )
+
+            return Response({
+                "message": f"Agent '{agent_name}' assigned to room '{room_id}'",
+                "room_id": room_id,
+                "assigned_agent": admin_id,
+                "assigned_agent_name": agent_name
+            }, status=status.HTTP_200_OK)
+
+        except PyMongoError as e:
+            logger.error(f"MongoDB Error: {str(e)}")
+            return Response({"error": f"Database error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        except Exception as e:
+            logger.error(f"Unexpected Error: {str(e)}")
+            return Response({"error": f"Unexpected error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
