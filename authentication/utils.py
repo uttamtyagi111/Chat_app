@@ -100,3 +100,29 @@ def role_required(roles):
 agent_required = role_required(['agent'])
 superadmin_required = role_required(['superadmin'])
 agent_or_superadmin_required = role_required(['agent', 'superadmin'])
+
+
+
+def is_agent_assigned_to_widget(request, widget_id):
+    user = getattr(request, 'jwt_user', {})
+    role = user.get('role')
+    if role == 'superadmin':
+        return True
+    if role == 'agent':
+        assigned_widgets = user.get('assigned_widgets', [])
+        return widget_id in assigned_widgets
+    return False
+
+
+
+
+def is_agent_assigned_to_room(request, room_id):
+    user = getattr(request, 'jwt_user', {})
+    role = user.get('role')
+    if role == 'superadmin':
+        return True
+    if role == 'agent':
+        assigned_rooms = user.get('assigned_rooms', [])
+        return room_id in assigned_rooms
+    return False
+

@@ -796,25 +796,25 @@ chat_rooms = {}
 """
 for testing with frontend template 
 """
-def user_chat(request):
-    room_id = generate_room_id()
-    room_collection = get_room_collection()
+# def user_chat(request):
+#     room_id = generate_room_id()
+#     room_collection = get_room_collection()
 
-    existing_room = room_collection.find_one({'room_id': room_id})
+#     existing_room = room_collection.find_one({'room_id': room_id})
     
-    while existing_room:
-        room_id = generate_room_id()
-        existing_room = room_collection.find_one({'room_id': room_id})
+#     while existing_room:
+#         room_id = generate_room_id()
+#         existing_room = room_collection.find_one({'room_id': room_id})
 
-    room_collection.insert_one({
-        'room_id': room_id,
-        'is_active': True,
-        'created_at': datetime.now(),
-        'assigned_agent': None,
+#     room_collection.insert_one({
+#         'room_id': room_id,
+#         'is_active': True,
+#         'created_at': datetime.now(),
+#         'assigned_agent': None,
         
-    })
+#     })
     
-    return render(request, 'chat/user_chat.html', {'room_id': room_id})
+#     return render(request, 'chat/user_chat.html', {'room_id': room_id})
 
 class UserChatAPIView(APIView):
     @swagger_auto_schema(

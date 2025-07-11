@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from .views import PatchTriggerAPIView
 
 urlpatterns = [
     path('tickets/', views.ticket_list, name='ticket-list'),
@@ -18,9 +19,10 @@ urlpatterns = [
     path('tag/delete/<str:tag_id>/', views.delete_tag, name='delete-tag'),
     # path('triggers/', views.get_active_triggers, name='get-triggers'),
     path('triggers/', views.get_triggers_api, name='trigger-list'),
+    path('trigger/<str:trigger_id>/', views.get_trigger_detail, name='trigger-detail'),
     path('triggers/add/', views.add_trigger, name='add-trigger'),
     path('test-trigger/', views.trigger_test_view, name='test-trigger'),
-    path('update-predefined/', views.update_predefined_messages, name='update_predefined_messages'),
+    path('trigger/update/<str:trigger_id>/', PatchTriggerAPIView.as_view(), name='update_trigger_message'),
 
     # path('check-triggers/', views.check_triggers, name='check-triggers'),
 

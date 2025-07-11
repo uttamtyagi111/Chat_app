@@ -1,9 +1,11 @@
 import logging
+from turtle import up
 from venv import logger
 import json
 from django.shortcuts import render, redirect
 from django.utils import timezone
 from bson import ObjectId
+from urllib3 import request
 from authentication.utils import jwt_required, agent_or_superadmin_required
 from wish_bot.db import get_ticket_collection,get_tag_collection, get_agent_collection
 from wish_bot.db import get_shortcut_collection,get_trigger_collection
@@ -446,138 +448,535 @@ def delete_tag(request, tag_id):
 
 import json
 
+# def add_trigger(request):
+#     if request.method == 'POST':
+#         name = request.POST.get('name')
+#         message = request.POST.get('message')
+#         # url_contains = request.POST.get('url_contains')
+#         # time_on_page_sec = int(request.POST.get('time_on_page_sec') or 0)
+#         widget_id = request.POST.get('widget_id')  # <-- Get widget ID from the form
+#         # tags = [t.strip() for t in request.POST.get('tags', '').split(',') if t.strip()]
+#         is_active = request.POST.get('is_active', 'true').lower() == 'true'
+        
+#         # Optional suggested replies as comma-separated values
+#         suggested_raw = request.POST.get('suggested_replies', '[]')
+#         try:
+#             suggested_replies = json.loads(suggested_raw)
+#             if not isinstance(suggested_replies, list):
+#                 raise ValueError
+#         except Exception:
+#             return render(request, 'support/add_trigger.html', {
+#                 'error': 'Suggested replies must be a valid JSON list'
+#             })
+            
+#         if not widget_id:
+#             return render(request, 'support/add_trigger.html', {
+#                 'error': 'Widget ID is required'
+#             })
+
+#         trigger_collection = get_trigger_collection()
+
+#         # Count only triggers for this widget to determine the order
+#         current_count = trigger_collection.count_documents({'widget_id': widget_id})
+
+#         trigger_data = {
+#             'trigger_id': str(ObjectId()),
+#             'widget_id': widget_id,  # <-- Save widget ID
+#             'name': name,
+#             'message': message,
+#             # 'conditions': {
+#             #     'url_contains': url_contains,
+#             #     'time_on_page_sec': time_on_page_sec
+#             # },
+#             # 'tags': tags,
+#             'is_active': is_active,
+#             'created_at': timezone.now(),
+#             'order': current_count + 1
+#         }
+#         if suggested_replies:
+#             trigger_data['suggested_replies'] = suggested_replies
+
+#         # # Insert new tags
+#         # tag_collection = get_tag_collection()
+#         # for tag in tags:
+#         #     if not tag_collection.find_one({'name': tag}):
+#         #         tag_collection.insert_one({
+#         #             'tag_id': str(ObjectId()),
+#         #             'name': tag,
+#         #             'color': '#28a745',
+#         #             'created_at': timezone.now()
+#         #         })
+
+#         trigger_collection.insert_one(trigger_data)
+#         return redirect('/admin/')
+
+#     return render(request, 'support/add_trigger.html')
+
+# from django.http import JsonResponse
+# import json
+# from bson import ObjectId
+# from django.utils import timezone
+
+# def add_trigger(request):
+#     if request.method == 'POST':
+#         try:
+#             name = request.POST.get('name')
+#             message = request.POST.get('message')
+#             widget_id = request.POST.get('widget_id')
+#             is_active = request.POST.get('is_active', 'true').lower() == 'true'
+            
+#             # Validate required fields
+#             if not name:
+#                 return JsonResponse({
+#                     'success': False,
+#                     'error': 'Name is required'
+#                 }, status=400)
+            
+#             if not message:
+#                 return JsonResponse({
+#                     'success': False,
+#                     'error': 'Message is required'
+#                 }, status=400)
+            
+#             if not widget_id:
+#                 return JsonResponse({
+#                     'success': False,
+#                     'error': 'Widget ID is required'
+#                 }, status=400)
+            
+#             # Parse suggested replies
+#             suggested_raw = request.POST.get('suggested_replies', '[]')
+#             try:
+#                 suggested_replies = json.loads(suggested_raw)
+#                 if not isinstance(suggested_replies, list):
+#                     raise ValueError
+#             except Exception:
+#                 return JsonResponse({
+#                     'success': False,
+#                     'error': 'Suggested replies must be a valid JSON list'
+#                 }, status=400)
+            
+#             trigger_collection = get_trigger_collection()
+            
+#             # Count only triggers for this widget to determine the order
+#             current_count = trigger_collection.count_documents({'widget_id': widget_id})
+            
+#             trigger_data = {
+#                 'trigger_id': str(ObjectId()),
+#                 'widget_id': widget_id,
+#                 'name': name,
+#                 'message': message,
+#                 'is_active': is_active,
+#                 'created_at': timezone.now(),
+#                 'order': current_count + 1
+#             }
+            
+#             if suggested_replies:
+#                 trigger_data['suggested_replies'] = suggested_replies
+            
+#             # Insert the trigger
+#             result = trigger_collection.insert_one(trigger_data)
+            
+#             if result.inserted_id:
+#                 return JsonResponse({
+#                     'success': True,
+#                     'message': 'Trigger added successfully',
+#                     'data': {
+#                         'trigger_id': trigger_data['trigger_id'],
+#                         'name': name,
+#                         'message': message,
+#                         'widget_id': widget_id,
+#                         'order': trigger_data['order'],
+#                         'is_active': is_active
+#                     }
+#                 })
+#             else:
+#                 return JsonResponse({
+#                     'success': False,
+#                     'error': 'Failed to insert trigger'
+#                 }, status=500)
+                
+#         except Exception as e:
+#             return JsonResponse({
+#                 'success': False,
+#                 'error': f'An error occurred: {str(e)}'
+#             }, status=500)
+    
+#     # GET request
+#     return JsonResponse({
+#         'success': False,
+#         'error': 'Only POST method is allowed'
+#     }, status=405)
+
+# from rest_framework.decorators import api_view
+# from rest_framework.response import Response
+# from wish_bot.db import get_trigger_collection
+
+# @api_view(['PUT'])
+# def update_predefined_messages(request):
+#     widget_id = request.data.get('widget_id')
+#     updated_messages = request.data.get('messages', [])
+
+#     if not widget_id or not isinstance(updated_messages, list):
+#         return Response({'error': 'Invalid input data'}, status=400)
+
+#     collection = get_trigger_collection()
+
+#     modified_count = 0
+
+#     for i, msg in enumerate(updated_messages):
+#         trigger_id = msg.get('trigger_id')
+#         if not trigger_id:
+#             continue  # Skip invalid entry
+
+#         update_fields = {
+#             'message': msg.get('message'),
+#             'name': msg.get('name', ''),
+#             'is_active': msg.get('is_active', True),
+#             'order': i + 1,
+#             'suggested_replies': msg.get('suggested_replies', []), # <-- New field
+#             'updated_at': timezone.now()
+#         }
+
+#         result = collection.update_one(
+#             {'trigger_id': trigger_id, 'widget_id': widget_id},
+#             {'$set': update_fields}
+#         )
+        
+#         modified_count += result.modified_count
+
+#     return Response({'success': True, 'modified_count': modified_count})
+
+
+# from django.http import JsonResponse
+
+
+# def get_triggers_api(request):
+#     """
+#     GET API to retrieve triggers with optional filters:
+#     - widget_id: str
+#     - is_active: true/false (case insensitive)
+
+#     Example: /get-triggers?widget_id=abc123&is_active=true
+#     """
+#     widget_id = request.GET.get('widget_id')
+#     is_active_param = request.GET.get('is_active')
+
+#     trigger_collection = get_trigger_collection()
+
+#     query = {}
+#     if widget_id:
+#         query['widget_id'] = widget_id
+
+#     if is_active_param is not None:
+#         if is_active_param.lower() == 'true':
+#             query['is_active'] = True
+#         elif is_active_param.lower() == 'false':
+#             query['is_active'] = False
+
+#     triggers = list(trigger_collection.find(query))
+
+#     for t in triggers:
+#         t['trigger_id'] = str(t.get('trigger_id', ''))
+#         t['_id'] = str(t['_id'])
+#         if 'created_at' in t and hasattr(t['created_at'], 'isoformat'):
+#             t['created_at'] = t['created_at'].isoformat()
+
+#     return JsonResponse({'triggers': triggers}, safe=False)
+from django.http import JsonResponse
+import json
+from bson import ObjectId
+from django.utils import timezone
+from wish_bot.db import get_trigger_collection
+from authentication.utils import jwt_required,is_agent_assigned_to_widget
+
+
+@jwt_required
 def add_trigger(request):
     if request.method == 'POST':
-        name = request.POST.get('name')
-        message = request.POST.get('message')
-        # url_contains = request.POST.get('url_contains')
-        # time_on_page_sec = int(request.POST.get('time_on_page_sec') or 0)
-        widget_id = request.POST.get('widget_id')  # <-- Get widget ID from the form
-        # tags = [t.strip() for t in request.POST.get('tags', '').split(',') if t.strip()]
-        is_active = request.POST.get('is_active', 'true').lower() == 'true'
-        
-        # Optional suggested replies as comma-separated values
-        suggested_raw = request.POST.get('suggested_replies', '[]')
         try:
-            suggested_replies = json.loads(suggested_raw)
-            if not isinstance(suggested_replies, list):
-                raise ValueError
-        except Exception:
-            return render(request, 'support/add_trigger.html', {
-                'error': 'Suggested replies must be a valid JSON list'
-            })
-            
-        if not widget_id:
-            return render(request, 'support/add_trigger.html', {
-                'error': 'Widget ID is required'
-            })
+            user = request.jwt_user
+            widget_id = request.POST.get('widget_id')
 
-        trigger_collection = get_trigger_collection()
+            if not is_agent_assigned_to_widget(request, widget_id):
+                return JsonResponse({'success': False, 'error': 'Unauthorized: Not assigned to this widget'}, status=403)
 
-        # Count only triggers for this widget to determine the order
-        current_count = trigger_collection.count_documents({'widget_id': widget_id})
+            name = request.POST.get('name')
+            message = request.POST.get('message')
+            is_active = request.POST.get('is_active', 'true').lower() == 'true'
 
-        trigger_data = {
-            'trigger_id': str(ObjectId()),
-            'widget_id': widget_id,  # <-- Save widget ID
-            'name': name,
-            'message': message,
-            # 'conditions': {
-            #     'url_contains': url_contains,
-            #     'time_on_page_sec': time_on_page_sec
-            # },
-            # 'tags': tags,
-            'is_active': is_active,
-            'created_at': timezone.now(),
-            'order': current_count + 1
-        }
-        if suggested_replies:
-            trigger_data['suggested_replies'] = suggested_replies
+            if not name or not message or not widget_id:
+                return JsonResponse({'success': False, 'error': 'Missing required fields'}, status=400)
 
-        # # Insert new tags
-        # tag_collection = get_tag_collection()
-        # for tag in tags:
-        #     if not tag_collection.find_one({'name': tag}):
-        #         tag_collection.insert_one({
-        #             'tag_id': str(ObjectId()),
-        #             'name': tag,
-        #             'color': '#28a745',
-        #             'created_at': timezone.now()
-        #         })
+            # Check for existing trigger with the same name for the same widget
+            trigger_collection = get_trigger_collection()
+            existing_trigger = trigger_collection.find_one({'widget_id': widget_id, 'name': name})
+            if existing_trigger:
+                return JsonResponse({
+                    'success': False,
+                    'error': f"A trigger with the name '{name}' already exists for this widget"
+                }, status=400)
 
-        trigger_collection.insert_one(trigger_data)
-        return redirect('/admin/')
+            suggested_raw = request.POST.get('suggested_replies', '[]')
+            try:
+                suggested_replies = json.loads(suggested_raw)
+                if not isinstance(suggested_replies, list):
+                    raise ValueError
+            except Exception:
+                return JsonResponse({'success': False, 'error': 'Suggested replies must be a valid JSON list'}, status=400)
 
-    return render(request, 'support/add_trigger.html')
+            current_count = trigger_collection.count_documents({'widget_id': widget_id})
 
+            trigger_data = {
+                'trigger_id': str(ObjectId()),
+                'widget_id': widget_id,
+                'name': name,
+                'message': message,
+                'is_active': is_active,
+                'created_at': timezone.now(),
+                'order': current_count + 1
+            }
 
+            if suggested_replies:
+                trigger_data['suggested_replies'] = suggested_replies
+
+            result = trigger_collection.insert_one(trigger_data)
+
+            if result.inserted_id:
+                return JsonResponse({
+                    'success': True,
+                    'message': 'Trigger added successfully',
+                    'data': {
+                        'trigger_id': trigger_data['trigger_id'],
+                        'name': name,
+                        'message': message,
+                        'widget_id': widget_id,
+                        'order': trigger_data['order'],
+                        'is_active': is_active
+                    }
+                })
+
+            return JsonResponse({'success': False, 'error': 'Failed to insert trigger'}, status=500)
+
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': f'An error occurred: {str(e)}'}, status=500)
+
+    return JsonResponse({'success': False, 'error': 'Only POST method is allowed'}, status=405)
 
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from django.utils import timezone
+from bson import ObjectId
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from authentication.jwt_auth import JWTAuthentication
 from wish_bot.db import get_trigger_collection
+from rest_framework.response import Response
+from rest_framework import status
+from wish_bot.db import get_trigger_collection
+from authentication.jwt_auth import JWTAuthentication
+from django.utils import timezone
 
-@api_view(['PUT'])
-def update_predefined_messages(request):
+
+class PatchTriggerAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+
+    def patch(self, request, trigger_id):
+        widget_id = request.data.get('widget_id')
+        if not widget_id:
+            return Response({'error': 'widget_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = request.user
+            role = request.user.get('role')
+            assigned_widgets = request.user.get('assigned_widgets', [])
+
+            if role == 'agent' and widget_id not in assigned_widgets:
+                return Response({'error': 'Unauthorized: Not assigned to this widget'}, status=403)
+# This is your SimpleUser object set by JWTAuthentication
+
+
+            # Inline role-based access check
+            if role == 'agent' and widget_id not in assigned_widgets:
+                return Response({'error': 'Unauthorized: Not assigned to this widget'}, status=status.HTTP_403_FORBIDDEN)
+
+            # If superadmin or agent with access -> continue
+            collection = get_trigger_collection()
+            update_fields = {}
+
+            if 'name' in request.data:
+                new_name = request.data['name']
+                existing = collection.find_one({
+                    'widget_id': widget_id,
+                    'name': new_name,
+                    'trigger_id': {'$ne': trigger_id}
+                })
+                if existing:
+                    return Response({'error': f"A trigger with the name '{new_name}' already exists"}, status=400)
+                update_fields['name'] = new_name
+
+            if 'message' in request.data:
+                update_fields['message'] = request.data['message']
+
+            if 'is_active' in request.data:
+                update_fields['is_active'] = request.data['is_active']
+
+            if 'suggested_replies' in request.data:
+                replies = request.data['suggested_replies']
+                if not isinstance(replies, list):
+                    return Response({'error': 'suggested_replies must be a list'}, status=400)
+                update_fields['suggested_replies'] = replies
+
+            if 'order' in request.data:
+                order = request.data['order']
+                if not isinstance(order, int) or order <= 0:
+                    return Response({'error': 'order must be a positive integer'}, status=400)
+                update_fields['order'] = order
+
+            if not update_fields:
+                return Response({'error': 'No valid fields provided to update'}, status=400)
+
+            update_fields['updated_at'] = timezone.now()
+
+            result = collection.update_one(
+                {'trigger_id': trigger_id, 'widget_id': widget_id},
+                {'$set': update_fields}
+            )
+            
+              # ✅ Return the updated trigger document
+            updated_trigger = collection.find_one({'trigger_id': trigger_id, 'widget_id': widget_id})
+            if updated_trigger:
+                updated_trigger['_id'] = str(updated_trigger['_id'])  # Convert ObjectId to str
+                updated_trigger['updated_at'] = updated_trigger.get('updated_at').isoformat()
+
+
+            if result.matched_count == 0:
+                return Response({'error': 'Trigger not found or widget_id mismatch'}, status=404)
+
+            return Response({
+                'success': True,
+                'message': 'Trigger updated successfully',
+                'updated_fields': updated_trigger
+            })
+
+        except Exception as e:
+            return Response({'error': f'Unexpected error: {str(e)}'}, status=500)
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+
+# from authentication.decorators import jwt_required
+# from .utils import is_agent_assigned_to_widget  # or define inline
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from django.utils import timezone
+from wish_bot.db import get_trigger_collection
+from authentication.utils import jwt_required
+from authentication.utils import is_agent_assigned_to_widget
+
+@api_view(['PATCH'])
+@jwt_required
+def update_trigger_message(request, trigger_id):
+    # user = request.jwt_user
     widget_id = request.data.get('widget_id')
-    updated_messages = request.data.get('messages', [])
+    
+    if not widget_id:
+        return Response({'error': 'widget_id is required'}, status=400)
 
-    if not widget_id or not isinstance(updated_messages, list):
-        return Response({'error': 'Invalid input data'}, status=400)
+    # ✅ Role-based widget access: agent must be assigned, superadmin allowed
+    if not is_agent_assigned_to_widget(request, widget_id):
+        return Response({'error': 'Unauthorized: Not assigned to this widget'}, status=403)
 
     collection = get_trigger_collection()
+    update_fields = {}
 
-    modified_count = 0
+    # Optional fields
+    if 'message' in request.data:
+        update_fields['message'] = request.data['message']
 
-    for i, msg in enumerate(updated_messages):
-        trigger_id = msg.get('trigger_id')
-        if not trigger_id:
-            continue  # Skip invalid entry
+    if 'name' in request.data:
+        update_fields['name'] = request.data['name']
 
-        update_fields = {
-            'message': msg.get('message'),
-            'name': msg.get('name', ''),
-            'is_active': msg.get('is_active', True),
-            'order': i + 1,
-            'suggested_replies': msg.get('suggested_replies', []), # <-- New field
-            'updated_at': timezone.now()
-        }
+    if 'is_active' in request.data:
+        if not isinstance(request.data['is_active'], bool):
+            return Response({'error': 'is_active must be a boolean'}, status=400)
+        update_fields['is_active'] = request.data['is_active']
 
-        result = collection.update_one(
-            {'trigger_id': trigger_id, 'widget_id': widget_id},
-            {'$set': update_fields}
-        )
-        
-        modified_count += result.modified_count
+    if 'suggested_replies' in request.data:
+        replies = request.data['suggested_replies']
+        if not isinstance(replies, list):
+            return Response({'error': 'suggested_replies must be a list'}, status=400)
+        update_fields['suggested_replies'] = replies
 
-    return Response({'success': True, 'modified_count': modified_count})
+    if 'order' in request.data:
+        order = request.data['order']
+        if not isinstance(order, int) or order <= 0:
+            return Response({'error': 'order must be a positive integer'}, status=400)
+        update_fields['order'] = order
+
+    if not update_fields:
+        return Response({'error': 'No valid fields provided to update'}, status=400)
+
+    update_fields['updated_at'] = timezone.now()
+
+    result = collection.update_one(
+        {'trigger_id': trigger_id, 'widget_id': widget_id},
+        {'$set': update_fields}
+    )
+
+    if result.matched_count == 0:
+        return Response({'error': 'Trigger not found or widget_id mismatch'}, status=404)
+
+    return Response({
+        'success': True,
+        'message': 'Trigger updated successfully',
+        'updated_fields': list(update_fields.keys())
+    })
 
 
-from django.http import JsonResponse
 
-
+from wish_bot.db import get_widget_collection
+@jwt_required
 def get_triggers_api(request):
-    """
-    GET API to retrieve triggers with optional filters:
-    - widget_id: str
-    - is_active: true/false (case insensitive)
+    user = request.jwt_user
+    role = user.get("role")
+    assigned_widgets = user.get("assigned_widgets", [])
 
-    Example: /get-triggers?widget_id=abc123&is_active=true
-    """
     widget_id = request.GET.get('widget_id')
     is_active_param = request.GET.get('is_active')
 
-    trigger_collection = get_trigger_collection()
+    # Validate agent access
+    if role == 'agent':
+        if not widget_id:
+            return JsonResponse({'error': 'widget_id is required for agents'}, status=400)
 
+        if widget_id not in assigned_widgets:
+            return JsonResponse({'error': 'Unauthorized: Not assigned to this widget'}, status=403)
+
+        # Verify widget is active
+        widget_collection = get_widget_collection()
+        widget = widget_collection.find_one({'widget_id': widget_id, 'is_active': True})
+        if not widget:
+            return JsonResponse({'error': 'Widget is either not found or not active'}, status=403)
+
+    elif role != 'superadmin':
+        return JsonResponse({'error': 'Access denied: Invalid role'}, status=403)
+
+    # Build query
     query = {}
     if widget_id:
         query['widget_id'] = widget_id
 
-    if is_active_param is not None:
+    if is_active_param:
         if is_active_param.lower() == 'true':
             query['is_active'] = True
         elif is_active_param.lower() == 'false':
             query['is_active'] = False
 
+    # Fetch and format triggers
+    trigger_collection = get_trigger_collection()
     triggers = list(trigger_collection.find(query))
 
     for t in triggers:
@@ -588,6 +987,43 @@ def get_triggers_api(request):
 
     return JsonResponse({'triggers': triggers}, safe=False)
 
+
+@jwt_required
+def get_trigger_detail(request, trigger_id):
+    user = request.jwt_user
+    role = user.get("role")
+    assigned_widgets = user.get("assigned_widgets", [])
+
+    trigger_collection = get_trigger_collection()
+    widget_collection = get_widget_collection()
+
+    # Find trigger
+    trigger = trigger_collection.find_one({'trigger_id': trigger_id})
+    if not trigger:
+        return JsonResponse({'error': 'Trigger not found'}, status=404)
+
+    widget_id = trigger.get('widget_id')
+
+    # Role-based check
+    if role == 'agent':
+        if widget_id not in assigned_widgets:
+            return JsonResponse({'error': 'Unauthorized: Not assigned to this widget'}, status=403)
+
+        widget = widget_collection.find_one({'widget_id': widget_id, 'is_active': True})
+        if not widget:
+            return JsonResponse({'error': 'Widget is either not found or not active'}, status=403)
+
+    elif role != 'superadmin':
+        return JsonResponse({'error': 'Access denied: Invalid role'}, status=403)
+
+    # Format trigger
+    trigger['trigger_id'] = str(trigger.get('trigger_id', ''))
+    trigger['_id'] = str(trigger.get('_id', ''))
+
+    if 'created_at' in trigger and hasattr(trigger['created_at'], 'isoformat'):
+        trigger['created_at'] = trigger['created_at'].isoformat()
+
+    return JsonResponse({'trigger': trigger}, safe=False)
 
 from django.shortcuts import render
 def trigger_test_view(request):
