@@ -1,7 +1,5 @@
 from rest_framework import status, parsers
 from django.utils.timezone import now
-from authentication.jwt_auth import JWTAuthentication
-from wish_bot.db import get_widget_collection, get_admin_collection
 from gc import enable
 from authentication.utils import jwt_required,superadmin_required
 from wish_bot.db import get_admin_collection, get_room_collection,get_agent_notes_collection,get_contact_collection
@@ -10,6 +8,9 @@ from datetime import datetime, timedelta
 from utils.redis_client import redis_client
 from django.shortcuts import render
 from django.http import JsonResponse
+from rest_framework.views import APIView
+from authentication.jwt_auth import JWTAuthentication
+from authentication.permissions import IsAgentOrSuperAdmin
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from utils.random_id import generate_room_id,generate_widget_id,generate_contact_id
@@ -17,15 +18,16 @@ import logging
 import uuid
 import json
 import boto3
+import requests
+from user_agents import parse
 from botocore.exceptions import ClientError
 from rest_framework.permissions import AllowAny
-from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes,authentication_classes
-from rest_framework.permissions import AllowAny
-from rest_framework import status
 from django.conf import settings
 from drf_yasg.utils import swagger_auto_schema
+from drf_spectacular.utils import extend_schema, OpenApiResponse
+from pymongo.errors import PyMongoError
 from drf_yasg import openapi
 from django.views.decorators.http import require_GET, require_http_methods
 
@@ -99,7 +101,7 @@ def get_widget(request, widget_id=None):
                     "offlineMessage": "",
                     "soundEnabled": True
                 }),
-                "direct_chat_link": widget.get("direct_chat_link", f"{base_domain}/direct-chat/{widget['widget_id']}"),
+                "direct_chat_link": widget.get("direct_chat_link", f"{base_domain}/chat/direct-chat/{widget['widget_id']}"),
                 "widget_code": widget_code
             }
 
@@ -834,6 +836,54 @@ class UserChatAPIView(APIView):
             404: openapi.Response('Widget Not Found')
         }
     )
+    def get_client_ip(self, request):
+        return request.data.get("ip")
+
+    def get_ip_geolocation(self, ip_address):
+        if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1']:
+            return {
+                'country': 'Local',
+                'city': 'Local',
+                'region': 'Local',
+                'country_code': '',
+                'timezone': '',
+                'flag': None
+            }
+
+        try:
+            api_url = f'https://ipwhois.pro/{ip_address}?key=8HaX4qcer2Ml9Hfc'
+            response = requests.get(api_url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('success', True):
+                    country_code = data.get('country_code', '').upper()
+                    flag = {
+                        'emoji': ''.join(chr(ord(c) + 127397) for c in country_code),
+                        'url': f"https://flagcdn.com/32x24/{country_code.lower()}.png",
+                        'country_code': country_code
+                    } if country_code and len(country_code) == 2 else None
+
+                    return {
+                        'country': data.get('country', 'Unknown'),
+                        'city': data.get('city', 'Unknown'),
+                        'region': data.get('region', ''),
+                        'country_code': country_code,
+                        'timezone': data.get('timezone', ''),
+                        'flag': flag
+                    }
+
+        except Exception as e:
+            print(f"[Geolocation Error] {str(e)}")
+
+        return {
+            'country': 'Unknown',
+            'city': 'Unknown',
+            'region': '',
+            'country_code': '',
+            'timezone': '',
+            'flag': None
+        }
+        
     def post(self, request):
         widget_id = request.data.get("widget_id")
         client_ip = self.get_client_ip(request)
@@ -894,8 +944,8 @@ class UserChatAPIView(APIView):
                     'region': ip_info.get('region', ''),
                     'country_code': ip_info.get('country_code', ''),
                     'timezone': ip_info.get('timezone', ''),
-                    # 'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
-                    # 'flag_url': ip_info.get('flag', {}).get('url', ''),
+                    'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
+                    'flag_url': ip_info.get('flag', {}).get('url', ''),
                     'os': os_info,
                     'browser': browser_info,
                 }
@@ -922,63 +972,10 @@ class UserChatAPIView(APIView):
                 "browser": browser_info,
             }
         }
-
         return Response(response_data, status=status.HTTP_200_OK)
 
-    def get_client_ip(self, request):
-        return request.data.get("ip")
 
-    def get_ip_geolocation(self, ip_address):
-        if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1']:
-            return {
-                'country': 'Local',
-                'city': 'Local',
-                'region': 'Local',
-                'country_code': '',
-                'timezone': '',
-                'flag': None
-            }
-
-        try:
-            api_url = f'https://ipwhois.pro/{ip_address}?key=8HaX4qcer2Ml9Hfc'
-            response = requests.get(api_url, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('success', True):
-                    country_code = data.get('country_code', '').upper()
-                    flag = {
-                        'emoji': ''.join(chr(ord(c) + 127397) for c in country_code),
-                        'url': f"https://flagcdn.com/32x24/{country_code.lower()}.png",
-                        'country_code': country_code
-                    } if country_code and len(country_code) == 2 else None
-
-                    return {
-                        'country': data.get('country', 'Unknown'),
-                        'city': data.get('city', 'Unknown'),
-                        'region': data.get('region', ''),
-                        'country_code': country_code,
-                        'timezone': data.get('timezone', ''),
-                        'flag': flag
-                    }
-
-        except Exception as e:
-            print(f"[Geolocation Error] {str(e)}")
-
-        return {
-            'country': 'Unknown',
-            'city': 'Unknown',
-            'region': '',
-            'country_code': '',
-            'timezone': '',
-            'flag': None
-        }
-import uuid
-
-import requests
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_GET
-from user_agents import parse  # Install this with pip install pyyaml ua-parser user-agents
+  # Install this with pip install pyyaml ua-parser user-agents
 
 
 @csrf_exempt
@@ -1022,6 +1019,7 @@ def test_ip_geolocation(request):
         })
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
 
 # import requests
 # import json
@@ -1267,7 +1265,6 @@ def test_ip_geolocation(request):
 
 
 
-
 @csrf_exempt
 @require_http_methods(["PATCH"])
 @jwt_required
@@ -1287,18 +1284,7 @@ def edit_room_tags(request, room_id):
         room_collection = get_room_collection()
         admin_collection = get_admin_collection()
 
-        # ✅ Validate tags against tag collection
-        valid_tags_cursor = tag_collection.find({"name": {"$in": new_tags}})
-        valid_tags = [tag["name"] for tag in valid_tags_cursor]
-
-        invalid_tags = list(set(new_tags) - set(valid_tags))
-        if invalid_tags:
-            return JsonResponse({
-                "error": "Some tags are invalid",
-                "invalid_tags": invalid_tags
-            }, status=400)
-
-        # ✅ Get room
+        # ✅ Get room document
         room = room_collection.find_one({"room_id": room_id})
         if not room:
             return JsonResponse({"error": "Room not found"}, status=404)
@@ -1307,31 +1293,54 @@ def edit_room_tags(request, room_id):
         if not widget_id:
             return JsonResponse({"error": "Widget ID not found in room"}, status=400)
 
-        # ✅ Access Control
+        # 🔐 Access control for agents
         if role != "superadmin":
-            agent_doc = admin_collection.find_one({"_id": admin_id})
+            agent_doc = admin_collection.find_one({"admin_id": admin_id})
             if not agent_doc:
                 return JsonResponse({"error": "Agent not found"}, status=404)
 
             assigned_widgets = agent_doc.get("assigned_widgets", [])
+            if isinstance(assigned_widgets, str):
+                assigned_widgets = [assigned_widgets]
+
             if widget_id not in assigned_widgets:
                 return JsonResponse({"error": "You are not authorized to edit this room"}, status=403)
 
-        # ✅ Update tags
+        # ✅ Fetch tag documents (with widget_id filtering)
+        tag_cursor = tag_collection.find(
+            {"name": {"$in": new_tags}, "widget_id": widget_id},
+            {"_id": 0, "name": 1, "color": 1}
+        )
+        found_tags = list(tag_cursor)
+        valid_tag_names = [tag["name"] for tag in found_tags]
+
+        # ❌ Detect and return invalid/mismatched tags
+        invalid_tags = list(set(new_tags) - set(valid_tag_names))
+        if invalid_tags:
+            return JsonResponse({
+                "error": "Some tags are invalid or belong to a different widget",
+                "invalid_tags": invalid_tags
+            }, status=400)
+
+        # ✅ Update room with valid tag objects
         room_collection.update_one(
             {"room_id": room_id},
-            {"$set": {"tags": new_tags}}
+            {"$set": {
+                "tags": found_tags,
+                "updated_at": datetime.utcnow()
+            }}
         )
 
         return JsonResponse({
             "message": "Room tags updated successfully",
-            "updated_tags": new_tags
+            "updated_tags": found_tags
         }, status=200)
 
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON format"}, status=400)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
 
 
 class ActiveRoomsAPIView(APIView):
@@ -1388,15 +1397,6 @@ agent_view for testing with frontend template
 #         )
 #     return render(request, 'chat/agent_chat.html', {'room_id': room_id})
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from authentication.permissions import IsAgentOrSuperAdmin
-from authentication.jwt_auth import JWTAuthentication
-from drf_spectacular.utils import extend_schema, OpenApiResponse
-from wish_bot.db import get_room_collection, get_admin_collection
-from pymongo.errors import PyMongoError
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -1501,14 +1501,8 @@ class AgentChatAPIView(APIView):
             logger.error(f"Unexpected Error: {str(e)}")
             return Response({"error": f"Unexpected error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from drf_spectacular.utils import extend_schema, OpenApiResponse
-from wish_bot.db import get_room_collection
-from pymongo.errors import PyMongoError
-from django.shortcuts import render
-import logging
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -1749,20 +1743,32 @@ class RoomListAPIView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+
+
+logger = logging.getLogger(__name__)
+
 class RoomDetailAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAgentOrSuperAdmin]
+
     def get(self, request, room_id):
         try:
             room_collection = get_room_collection()
             widget_collection = get_widget_collection()
 
+            # Retrieve the room
             room = room_collection.find_one({"room_id": room_id})
-
             if not room:
                 return Response({"error": "Room not found"}, status=status.HTTP_404_NOT_FOUND)
 
+            # Check object-level permissions
+            for permission in self.permission_classes:
+                if not permission().has_object_permission(request, self, room):
+                    return Response({"error": "Access denied"}, status=status.HTTP_403_FORBIDDEN)
+
+            # Prepare widget info
             widget_id = room.get("widget_id")
             widget_data = {}
-
             if widget_id:
                 widget = widget_collection.find_one(
                     {"widget_id": widget_id},
@@ -1774,7 +1780,7 @@ class RoomDetailAPIView(APIView):
                         "name": widget.get("name")
                     }
 
-            # Format response
+            # Prepare response
             room.pop("_id", None)
             room.pop("widget_id", None)
             room["widget"] = widget_data
@@ -1782,7 +1788,9 @@ class RoomDetailAPIView(APIView):
             return Response(room, status=status.HTTP_200_OK)
 
         except Exception as e:
+            logger.exception("Error retrieving room details")
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class ChatMessagesByDateAPIView(APIView):
@@ -1861,13 +1869,8 @@ class ChatMessagesByDateAPIView(APIView):
 
 
 
-import requests
-import json
-from django.http import JsonResponse
-from django.shortcuts import render
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from django.views.decorators.http import require_http_methods
+
+
 
 @csrf_exempt  # Add this if you're having CSRF issues
 @require_http_methods(["GET", "POST"])  # Allow both GET and POST

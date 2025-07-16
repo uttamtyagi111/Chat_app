@@ -228,13 +228,20 @@ def get_shortcut_collection():
     db = client['wish_bot_db']
     collection = db['shortcuts']
 
-    # Index on shortcut_id or name
     existing_indexes = collection.index_information()
-    
+
+    # Create compound unique index on (title + widget_id)
+    if 'title_widget_unique' not in existing_indexes:
+        collection.create_index([('title', 1), ('widget_id', 1)], unique=True, name='title_widget_unique')
+
     if 'shortcut_id_1' not in existing_indexes:
         collection.create_index([('shortcut_id', 1)], unique=True, name='shortcut_id_1')
+
     if 'created_at_-1' not in existing_indexes:
         collection.create_index([('created_at', -1)], name='created_at_-1')
+
+    return collection
+
 
     return collection
 
@@ -245,10 +252,18 @@ def get_tag_collection():
 
     existing_indexes = collection.index_information()
 
+    # Remove global unique index on 'name'
+    if 'name_1' in existing_indexes:
+        collection.drop_index('name_1')
+
+    # Create compound unique index on (name + widget_id)
+    if 'name_widget_unique' not in existing_indexes:
+        collection.create_index([('name', 1), ('widget_id', 1)], unique=True, name='name_widget_unique')
+
     if 'tag_id_1' not in existing_indexes:
         collection.create_index([('tag_id', 1)], unique=True, name='tag_id_1')
-    if 'name_1' not in existing_indexes:
-        collection.create_index([('name', 1)], unique=True, name='name_1')
+
+    return collection
 
     return collection
 

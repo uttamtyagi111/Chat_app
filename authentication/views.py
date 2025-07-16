@@ -106,8 +106,14 @@ def login(request):
         'email': user['email'],
         'role': user['role'],
     }
-    if user['role'] == 'agent':
-        payload['assigned_widgets'] = user.get('assigned_widgets', [])
+    # if user['role'] == 'agent':
+    #     widgets = user.get('assigned_widgets', [])
+    #     # Ensure it's a list
+    #     if isinstance(widgets, str):
+    #         widgets = [widgets]
+    #     payload['assigned_widgets'] = widgets
+        
+    print("Payload for token generation:", payload)  # Debugging line to check payload structure
 
     access_token = generate_access_token(payload)
     refresh_token = generate_refresh_token(payload)

@@ -7,7 +7,7 @@ from django.utils import timezone
 from bson import ObjectId
 from urllib3 import request
 from authentication.utils import jwt_required, agent_or_superadmin_required
-from wish_bot.db import get_ticket_collection,get_tag_collection, get_agent_collection
+from wish_bot.db import get_admin_collection, get_ticket_collection,get_tag_collection, get_agent_collection
 from wish_bot.db import get_shortcut_collection,get_trigger_collection
 
 import random
@@ -116,29 +116,23 @@ def shortcut_detail(request, shortcut_id):
 @jwt_required
 @agent_or_superadmin_required
 def add_shortcut(request):
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body.decode('utf-8'))
-        except json.JSONDecodeError:
-            return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
+
+    try:
+        data = json.loads(request.body.decode('utf-8'))
 
         title = data.get('title', '').strip()
         content = data.get('content', '').strip()
+        widget_id = data.get('widget_id', '').strip()
 
-        if not title or not content:
-            logger.warning("Shortcut creation failed: 'title' or 'content' missing")
-            return JsonResponse({
-                'success': False,
-                'message': "Both 'title' and 'content' are required."
-            }, status=400)
+        if not title or not content or not widget_id:
+            return JsonResponse({'error': "'title', 'content', and 'widget_id' are required"}, status=400)
 
-        # Get tags from user input - can be array or single string
         tags_input = data.get('tags', [])
         if isinstance(tags_input, str):
-            # If it's a string, split by comma or newline
             tags = [tag.strip() for tag in tags_input.replace('\n', ',').split(',') if tag.strip()]
         elif isinstance(tags_input, list):
-            # If it's already a list, just clean it up
             tags = [tag.strip() for tag in tags_input if tag.strip()]
         else:
             tags = []
@@ -148,27 +142,21 @@ def add_shortcut(request):
             suggested_messages = suggested_messages.split('\n')
         elif not isinstance(suggested_messages, list):
             suggested_messages = []
-        
         suggested_messages = [msg.strip() for msg in suggested_messages if msg.strip()]
 
         shortcut_collection = get_shortcut_collection()
-
-        # Check for duplicate title
-        if shortcut_collection.find_one({'title': title}):
-            logger.info(f"Shortcut not created: title '{title}' already exists")
-            return JsonResponse({
-                'success': False,
-                'message': f"A shortcut with the title '{title}' already exists."
-            }, status=400)
-
-        # Create tags if they don't exist
         tag_collection = get_tag_collection()
+
+        if shortcut_collection.find_one({'title': title, 'widget_id': widget_id}):
+            return JsonResponse({'error': f"Shortcut with title '{title}' already exists for this widget"}, status=409)
+
         for tag in tags:
-            if not tag_collection.find_one({'name': tag}):
+            if not tag_collection.find_one({'name': tag, 'widget_id': widget_id}):
                 tag_collection.insert_one({
                     'tag_id': str(ObjectId()),
                     'name': tag,
                     'color': '#007bff',
+                    'widget_id': widget_id,
                     'created_at': timezone.now()
                 })
 
@@ -180,14 +168,13 @@ def add_shortcut(request):
             'title': title,
             'content': content,
             'admin_id': admin_id,
+            'widget_id': widget_id,
             'tags': tags,
             'created_at': timezone.now(),
             'suggested_messages': suggested_messages
         }
 
         shortcut_collection.insert_one(shortcut_data)
-
-        logger.info(f"Shortcut created by admin_id={admin_id} | title='{title}' | shortcut_id={shortcut_id}")
 
         return JsonResponse({
             'success': True,
@@ -197,13 +184,18 @@ def add_shortcut(request):
                 'title': title,
                 'content': content,
                 'admin_id': admin_id,
+                'widget_id': widget_id,
                 'tags': tags,
-                'created_at': timezone.now(),
+                'created_at': str(shortcut_data['created_at']),
                 'suggested_messages': suggested_messages
             }
-        })
+        }, status=201)
 
-    return JsonResponse({'error': 'Invalid request method'}, status=400)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': f'Unexpected server error: {str(e)}'}, status=500)
+
 
 @jwt_required
 @agent_or_superadmin_required
@@ -213,68 +205,66 @@ def edit_shortcut(request, shortcut_id):
 
     try:
         data = json.loads(request.body.decode('utf-8'))
+
+        shortcut_col = get_shortcut_collection()
+        shortcut = shortcut_col.find_one({'shortcut_id': shortcut_id})
+        if not shortcut:
+            return JsonResponse({'error': 'Shortcut not found'}, status=404)
+
+        widget_id = shortcut.get('widget_id')
+        update_doc = {}
+
+        def parse_tags(value):
+            if isinstance(value, list):
+                return [v.strip() for v in value if v and str(v).strip()]
+            return [v.strip() for v in str(value).split(',') if v.strip()]
+
+        title = data.get('title')
+        if title is not None:
+            title = title.strip()
+            if not title:
+                return JsonResponse({'error': "'title' cannot be empty"}, status=400)
+            if shortcut_col.find_one({'title': title, 'widget_id': widget_id, 'shortcut_id': {'$ne': shortcut_id}}):
+                return JsonResponse({'error': f"Shortcut with title '{title}' already exists for this widget"}, status=409)
+            update_doc['title'] = title
+
+        content = data.get('content')
+        if content is not None:
+            content = content.strip()
+            if not content:
+                return JsonResponse({'error': "'content' cannot be empty"}, status=400)
+            if shortcut_col.find_one({'content': content, 'widget_id': widget_id, 'shortcut_id': {'$ne': shortcut_id}}):
+                return JsonResponse({'error': "Shortcut with this content already exists for this widget"}, status=409)
+            update_doc['content'] = content
+
+        if 'tags' in data:
+            update_doc['tags'] = parse_tags(data['tags'])
+
+        if 'suggested_messages' in data:
+            messages = data['suggested_messages']
+            if isinstance(messages, list):
+                clean_messages = [m.strip() for m in messages if m and str(m).strip()]
+            else:
+                clean_messages = [m.strip() for m in str(messages).split('\n') if m.strip()]
+            update_doc['suggested_messages'] = clean_messages
+
+        update_doc['updated_at'] = timezone.now()
+
+        if len(update_doc) == 1:
+            return JsonResponse({'success': False, 'message': 'No editable fields supplied'}, status=400)
+
+        shortcut_col.update_one({'shortcut_id': shortcut_id}, {'$set': update_doc})
+
+        return JsonResponse({
+            'success': True,
+            'message': 'Shortcut updated successfully',
+            'updated_fields': list(update_doc.keys())
+        }, status=200)
+
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON format'}, status=400)
-
-    shortcut_col = get_shortcut_collection()
-    shortcut = shortcut_col.find_one({'shortcut_id': shortcut_id})
-    if not shortcut:
-        return JsonResponse({'error': 'Shortcut not found'}, status=404)
-
-    def parse_tags(value):
-        if isinstance(value, list):
-            return [v.strip() for v in value if v and str(v).strip()]
-        return [v.strip() for v in str(value).split(',') if v.strip()]
-
-    update_doc = {}
-
-    # ---- Title Check ----
-    title = data.get('title')
-    if title is not None:
-        title = title.strip()
-        if not title:
-            return JsonResponse({'error': "'title' cannot be empty"}, status=400)
-        if shortcut_col.find_one({'title': title, 'shortcut_id': {'$ne': shortcut_id}}):
-            return JsonResponse({'error': f"Another shortcut already uses title '{title}'"}, status=400)
-        update_doc['title'] = title
-
-    # ---- Content Check ----
-    content = data.get('content')
-    if content is not None:
-        content = content.strip()
-        if not content:
-            return JsonResponse({'error': "'content' cannot be empty"}, status=400)
-        if shortcut_col.find_one({'content': content, 'shortcut_id': {'$ne': shortcut_id}}):
-            return JsonResponse({'error': f"Another shortcut already uses this content"}, status=400)
-        update_doc['content'] = content
-
-    # ---- Tags ----
-    if 'tags' in data:
-        update_doc['tags'] = parse_tags(data['tags'])
-    
-
-    # ---- Suggested Messages ----
-    if 'suggested_messages' in data:
-        messages = data['suggested_messages']
-        if isinstance(messages, list):
-            clean_messages = [m.strip() for m in messages if m and str(m).strip()]
-        else:
-            clean_messages = [m.strip() for m in str(messages).split('\n') if m.strip()]
-        update_doc['suggested_messages'] = clean_messages
-
-    # Always set updated_at even if no other fields were updated
-    update_doc['updated_at'] = timezone.now()
-
-    if len(update_doc) == 1:  # Only 'updated_at' was set
-        return JsonResponse({'success': False, 'message': 'No editable fields supplied'}, status=400)
-
-    shortcut_col.update_one({'shortcut_id': shortcut_id}, {'$set': update_doc})
-
-    logger.info(
-        f"[Shortcut Updated] shortcut_id={shortcut_id} by admin_id={request.jwt_user.get('admin_id')} | fields_updated={list(update_doc.keys())}"
-    )
-
-    return JsonResponse({'success': True, 'message': 'Shortcut updated successfully'})
+    except Exception as e:
+        return JsonResponse({'error': f'Unexpected server error: {str(e)}'}, status=500)
 
 
 @jwt_required
@@ -331,7 +321,6 @@ def tag_detail(request, tag_id):
 
 
 
-
 @jwt_required
 @agent_or_superadmin_required
 def add_tag(request):
@@ -340,41 +329,62 @@ def add_tag(request):
 
     try:
         data = json.loads(request.body.decode('utf-8'))
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+        name = data.get('name', '').strip()
+        color = data.get('color', '#cccccc').strip()
+        widget_id = data.get('widget_id', '').strip()
 
-    name = data.get('name', '').strip()
-    color = data.get('color', '#cccccc').strip()
+        if not name or not widget_id:
+            return JsonResponse({'error': "'name' and 'widget_id' are required"}, status=400)
 
-    if not name:
-        return JsonResponse({'error': "'name' is required"}, status=400)
+        user = request.jwt_user
+        role = user.get('role')
+        admin_id = user.get('admin_id')
 
-    tag_collection = get_tag_collection()
+        # 🧠 Role-based access check for agent
+        if role == 'agent':
+            admin_doc = get_admin_collection().find_one({'admin_id': admin_id})
+            if not admin_doc:
+                return JsonResponse({'error': 'Agent not found'}, status=404)
 
-    # Optional: prevent duplicate tag names
-    if tag_collection.find_one({'name': name}):
-        return JsonResponse({'error': f"Tag with name '{name}' already exists"}, status=409)
+            assigned_widgets = admin_doc.get('assigned_widgets', [])
+            if isinstance(assigned_widgets, str):
+                assigned_widgets = [assigned_widgets]
 
-    tag_id = str(ObjectId())
-    tag = {
-        'tag_id': tag_id,
-        'name': name,
-        'color': color,
-        'created_at': timezone.now()
-    }
+            if widget_id not in assigned_widgets:
+                return JsonResponse({'error': 'You are not authorized to add tags to this widget'}, status=403)
 
-    tag_collection.insert_one(tag)
+        tag_collection = get_tag_collection()
 
-    return JsonResponse({
-        'success': True,
-        'message': 'Tag added successfully',
-        'tag_id': tag_id,
-        'tag': {
+        if tag_collection.find_one({'name': name, 'widget_id': widget_id}):
+            return JsonResponse({'error': f"Tag with name '{name}' already exists for this widget"}, status=409)
+
+        tag_id = str(ObjectId())
+        tag = {
+            'tag_id': tag_id,
             'name': name,
             'color': color,
-            'created_at': str(tag['created_at'])
+            'widget_id': widget_id,
+            'created_at': timezone.now()
         }
-    }, status=201)
+
+        tag_collection.insert_one(tag)
+
+        return JsonResponse({
+            'success': True,
+            'message': 'Tag added successfully',
+            'tag_id': tag_id,
+            'tag': {
+                'name': name,
+                'color': color,
+                'widget_id': widget_id,
+                'created_at': str(tag['created_at'])
+            }
+        }, status=201)
+
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON format'}, status=400)
+    except Exception as e:
+        return JsonResponse({'error': f'Unexpected server error: {str(e)}'}, status=500)
 
 
 
@@ -386,48 +396,71 @@ def edit_tag(request, tag_id):
 
     try:
         data = json.loads(request.body.decode('utf-8'))
+        name = data.get('name', '').strip()
+        color = data.get('color', '#cccccc').strip()
+
+        if not name:
+            return JsonResponse({'error': "'name' is required"}, status=400)
+
+        tag_collection = get_tag_collection()
+        existing_tag = tag_collection.find_one({'tag_id': tag_id})
+        if not existing_tag:
+            return JsonResponse({'error': 'Tag not found'}, status=404)
+
+        widget_id = existing_tag.get('widget_id')
+        if not widget_id:
+            return JsonResponse({'error': 'Tag is not associated with any widget'}, status=400)
+
+        user = request.jwt_user
+        role = user.get('role')
+        admin_id = user.get('admin_id')
+
+        # 🔐 Role-based access control
+        if role == 'agent':
+            admin_doc = get_admin_collection().find_one({'admin_id': admin_id})
+            if not admin_doc:
+                return JsonResponse({'error': 'Agent not found'}, status=404)
+
+            assigned_widgets = admin_doc.get('assigned_widgets', [])
+            if isinstance(assigned_widgets, str):
+                assigned_widgets = [assigned_widgets]
+
+            if widget_id not in assigned_widgets:
+                return JsonResponse({'error': 'Unauthorized: Cannot edit tags from this widget'}, status=403)
+
+        # Even for superadmin, uniqueness should be within the same widget
+        if tag_collection.find_one({'name': name, 'widget_id': widget_id, 'tag_id': {'$ne': tag_id}}):
+            return JsonResponse({'error': f"Tag with name '{name}' already exists for this widget"}, status=409)
+
+        result = tag_collection.update_one(
+            {'tag_id': tag_id},
+            {
+                '$set': {
+                    'name': name,
+                    'color': color,
+                    'updated_at': timezone.now()
+                }
+            }
+        )
+
+        if result.matched_count == 0:
+            return JsonResponse({'error': 'Tag not found or not modified'}, status=404)
+
+        updated_tag = tag_collection.find_one({'tag_id': tag_id})
+        updated_tag['_id'] = str(updated_tag['_id'])
+        updated_tag['created_at'] = str(updated_tag.get('created_at', ''))
+        updated_tag['updated_at'] = str(updated_tag.get('updated_at', ''))
+
+        return JsonResponse({
+            'success': True,
+            'message': 'Tag updated successfully',
+            'tag': updated_tag
+        }, status=200)
+
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON format'}, status=400)
-
-    name = data.get('name', '').strip()
-    color = data.get('color', '#cccccc').strip()
-
-    if not name:
-        return JsonResponse({'error': "'name' is required"}, status=400)
-
-    tag_collection = get_tag_collection()
-
-    # ✅ Prevent duplicate tag name (excluding current tag_id)
-    if tag_collection.find_one({'name': name, 'tag_id': {'$ne': tag_id}}):
-        return JsonResponse({'error': f"Tag with name '{name}' already exists"}, status=409)
-
-    # ✅ Perform update
-    updated_at = timezone.now()
-    result = tag_collection.update_one(
-        {'tag_id': tag_id},
-        {
-            '$set': {
-                'name': name,
-                'color': color,
-                'updated_at': updated_at
-            }
-        }
-    )
-
-    if result.modified_count == 0:
-        return JsonResponse({'error': 'Tag not found or not modified'}, status=404)
-
-    # ✅ Return updated tag
-    updated_tag = tag_collection.find_one({'tag_id': tag_id})
-    updated_tag['_id'] = str(updated_tag['_id'])
-    updated_tag['created_at'] = str(updated_tag.get('created_at', ''))
-    updated_tag['updated_at'] = str(updated_tag.get('updated_at', ''))
-
-    return JsonResponse({
-        'success': True,
-        'message': 'Tag updated successfully',
-        'tag': updated_tag
-    }, status=200)
+    except Exception as e:
+        return JsonResponse({'error': f'Unexpected server error: {str(e)}'}, status=500)
 
 
 
@@ -790,11 +823,18 @@ class PatchTriggerAPIView(APIView):
         try:
             user = request.user
             role = request.user.get('role')
-            assigned_widgets = request.user.get('assigned_widgets', [])
+            admin_id = user.get('admin_id')
 
-            if role == 'agent' and widget_id not in assigned_widgets:
-                return Response({'error': 'Unauthorized: Not assigned to this widget'}, status=403)
-# This is your SimpleUser object set by JWTAuthentication
+            # 🔍 Dynamically fetch assigned_widgets for agents
+            if role == 'agent':
+                user_record = get_admin_collection().find_one({'admin_id': admin_id})
+                assigned_widgets = user_record.get('assigned_widgets', []) if user_record else []
+                if isinstance(assigned_widgets, str):
+                    assigned_widgets = [assigned_widgets]
+
+                if widget_id not in assigned_widgets:
+                    return Response({'error': 'Unauthorized: Not assigned to this widget'}, status=status.HTTP_403_FORBIDDEN)
+
 
 
             # Inline role-based access check
@@ -942,7 +982,17 @@ from wish_bot.db import get_widget_collection
 def get_triggers_api(request):
     user = request.jwt_user
     role = user.get("role")
-    assigned_widgets = user.get("assigned_widgets", [])
+    admin_id = user.get("admin_id")
+
+    assigned_widgets = []
+
+    if role == "agent":
+        # 🔍 Fetch assigned_widgets from the database
+        user_record = get_admin_collection().find_one({'admin_id': admin_id})
+        if user_record:
+            assigned_widgets = user_record.get('assigned_widgets', [])
+            if isinstance(assigned_widgets, str):
+                assigned_widgets = [assigned_widgets]
 
     widget_id = request.GET.get('widget_id')
     is_active_param = request.GET.get('is_active')
@@ -992,7 +1042,17 @@ def get_triggers_api(request):
 def get_trigger_detail(request, trigger_id):
     user = request.jwt_user
     role = user.get("role")
-    assigned_widgets = user.get("assigned_widgets", [])
+    admin_id = user.get("admin_id")
+
+    assigned_widgets = []
+
+    if role == "agent":
+        # 🔍 Fetch assigned_widgets from the database
+        user_record = get_admin_collection().find_one({'admin_id': admin_id})
+        if user_record:
+            assigned_widgets = user_record.get('assigned_widgets', [])
+            if isinstance(assigned_widgets, str):
+                assigned_widgets = [assigned_widgets]
 
     trigger_collection = get_trigger_collection()
     widget_collection = get_widget_collection()

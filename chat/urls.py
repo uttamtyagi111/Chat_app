@@ -8,13 +8,13 @@ urlpatterns = [
     
     
     path('rooms/', RoomListAPIView.as_view(), name='room-list'),
-    # path('rooms/<str:room_id>/', RoomDetailAPIView.as_view(), name='room-detail'),
+    path('rooms/<str:room_id>/', RoomDetailAPIView.as_view(), name='room-detail'),
     path('active-rooms/', ActiveRoomsAPIView.as_view(), name='active-rooms'),
     # path('agents/',AgentListAPIView.as_view(), name='agents-list'),
     path('chatroom/', views.chat_view, name='chat_view'),
     path('test-widget/', views.test_widget_view, name='test_widget'),
     ## Room Edit API
-    path('rooms/<str:room_id>/', views.edit_room_tags, name='edit-room-tags'),
+    path('edit-rooms/<str:room_id>/', views.edit_room_tags, name='edit-room-tags'),
 
     ## Widget Endpoints
     path('create-widget/', views.create_widget, name='widget_view'),

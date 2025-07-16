@@ -9,6 +9,8 @@ import logging
 import hashlib, jwt, datetime
 from django.conf import settings
 
+from wish_bot.db import get_admin_collection
+
 logger = logging.getLogger(__name__)
 
 def hash_password(password):
@@ -109,10 +111,12 @@ def is_agent_assigned_to_widget(request, widget_id):
     if role == 'superadmin':
         return True
     if role == 'agent':
-        assigned_widgets = user.get('assigned_widgets', [])
+        admin_id = user.get('admin_id')
+        user_record = get_admin_collection().find_one({'admin_id': admin_id})
+        assigned_widgets = user_record.get('assigned_widgets', [])
         return widget_id in assigned_widgets
-    return False
 
+    return False
 
 
 
