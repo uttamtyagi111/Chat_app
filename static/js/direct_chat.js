@@ -2,7 +2,7 @@
 // - fixed center image as chat background (with adjustable opacity)
 // - scrollable messages
 // - emoji picker
-// - file upload
+// - file upload with AWS S3 integration
 // - user message broadcasting retained
 // - Dynamic input box resizing
 // - WhatsApp-like send button, emoji, and file attachment positioning
@@ -241,6 +241,58 @@ function injectStyles() {
             background-color: #f0f0f0;
         }
 
+        /* File upload progress styles */
+        .file-upload-progress {
+            background-color: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            margin: 5px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .file-upload-progress .progress-bar {
+            flex: 1;
+            height: 6px;
+            background-color: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .file-upload-progress .progress-fill {
+            height: 100%;
+            background-color: #075E54;
+            transition: width 0.3s ease;
+        }
+
+        .file-link {
+            color: #075E54;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        .file-link:hover {
+            text-decoration: underline;
+        }
+
+        /* Loading spinner for file upload */
+        .upload-spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #075E54;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
         /* Form styling (optional, adjust as needed) */
         #chat-form {
             padding: 20px;
@@ -304,22 +356,118 @@ function injectStyles() {
         return picker;
     }
 
-    function broadcastAttachment(inputElement, socket) {
-        inputElement.addEventListener("change", () => {
+    // File upload function that integrates with AWS S3 upload API
+    async function uploadFile(file, widgetId) {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        const UPLOAD_API_URL = 'http://localhost:8000/chat/user-chat/upload-file/';
+        
+        try {
+            const response = await fetch(UPLOAD_API_URL, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Upload failed');
+            }
+            
+            const result = await response.json();
+            return result;
+        } catch (error) {
+            console.error('File upload error:', error);
+            throw error;
+        }
+    }
+
+    // Show upload progress
+    function showUploadProgress(fileName, progressContainer) {
+        const progressDiv = document.createElement('div');
+        progressDiv.className = 'file-upload-progress';
+        progressDiv.innerHTML = `
+            <div class="upload-spinner"></div>
+            <span>Uploading ${fileName}...</span>
+            <div class="progress-bar">
+                <div class="progress-fill" style="width: 0%"></div>
+            </div>
+        `;
+        
+        progressContainer.appendChild(progressDiv);
+        return progressDiv;
+    }
+
+    // Handle file attachment with upload
+    function handleFileAttachment(inputElement, socket, widgetId, chatMessages) {
+        inputElement.addEventListener("change", async () => {
             const file = inputElement.files[0];
-            if (file) {
+            if (!file) return;
+            
+            console.log(`${CHAT_LOG_PREFIX} 📎 File selected:`, file.name, `(${(file.size / 1024).toFixed(2)} KB)`);
+            
+            // Show upload progress
+            const progressDiv = showUploadProgress(file.name, chatMessages);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            try {
+                // Simulate progress (since we can't track real progress with fetch)
+                const progressBar = progressDiv.querySelector('.progress-fill');
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += 10;
+                    progressBar.style.width = `${Math.min(progress, 90)}%`;
+                    if (progress >= 90) {
+                        clearInterval(progressInterval);
+                    }
+                }, 100);
+                
+                // Upload file to S3
+                const uploadResult = await uploadFile(file, widgetId);
+                
+                // Complete progress
+                clearInterval(progressInterval);
+                progressBar.style.width = '100%';
+                
+                // Remove progress indicator after a short delay
+                setTimeout(() => {
+                    progressDiv.remove();
+                }, 1000);
+                
+                // Generate message with file info
                 const msgId = `msg-${Date.now()}-${Math.random()
                     .toString(36)
                     .substring(2, 8)}`;
-                const text = `📎 ${file.name} (${(file.size / 1024).toFixed(
-                    2
-                )} KB)`; // Include file size
-                socket.send(
-                    JSON.stringify({ sender: "User", message: text, message_id: msgId })
-                );
-                appendMessage("User", text, "user", msgId);
-                inputElement.value = null; // Clear file input
+                
+                const fileMessage = {
+                    sender: "User",
+                    message: `📎 <a href="${uploadResult.file_url}" target="_blank" class="file-link">${uploadResult.file_name}</a> (${(file.size / 1024).toFixed(2)} KB)`,
+                    message_id: msgId,
+                    file_url: uploadResult.file_url,
+                    file_name: uploadResult.file_name,
+                    file_size: file.size
+                };
+                
+                // Send file message through WebSocket
+                socket.send(JSON.stringify(fileMessage));
+                
+                // Display file message in chat
+                appendMessage("User", fileMessage.message, "user", msgId);
+                
+                console.log(`${CHAT_LOG_PREFIX} ✅ File uploaded successfully:`, uploadResult.file_url);
+                
+            } catch (error) {
+                console.error(`${CHAT_LOG_PREFIX} ❌ File upload failed:`, error);
+                
+                // Remove progress indicator
+                progressDiv.remove();
+                
+                // Show error message
+                appendSystemMessage(`Failed to upload file: ${error.message}`);
             }
+            
+            // Clear file input
+            inputElement.value = null;
         });
     }
 
@@ -382,7 +530,6 @@ function injectStyles() {
         chatHeader.textContent = "Chat with Us"; // Or a dynamic title
         chatContainer.insertBefore(chatHeader, chatMessages);
 
-
         // Create chat controls container (the overall bar at the bottom)
         const chatControls = document.createElement("div");
         chatControls.id = "chat-controls";
@@ -414,6 +561,8 @@ function injectStyles() {
         fileInput.type = "file";
         fileInput.id = "file-upload-input";
         fileInput.style.display = "none";
+        // Accept common file types
+        fileInput.accept = "image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.csv,.xlsx,.zip,.rar";
         document.body.appendChild(fileInput); // Append to body or a less constrained area if it's hidden anyway
 
         // Create and append the emoji picker (relative to chatControls, so position within its bounds)
@@ -437,7 +586,6 @@ function injectStyles() {
         });
         // Initial adjustment on load
         input.style.height = input.scrollHeight + "px";
-
 
         console.log("✅ Required DOM elements found and structured");
         console.groupEnd();
@@ -506,7 +654,8 @@ function injectStyles() {
 
             socket.onopen = () => {
                 console.log(`${CHAT_LOG_PREFIX} 🔌 WebSocket connected`);
-                broadcastAttachment(fileInput, socket); // Initialize file attachment broadcasting
+                // Initialize file attachment handling with upload functionality
+                handleFileAttachment(fileInput, socket, widgetId, chatMessages);
             };
             socket.onclose = (e) => {
                 console.warn(`${CHAT_LOG_PREFIX} ⚠️ WebSocket closed:`, e);
@@ -591,7 +740,7 @@ function injectStyles() {
 
             div.innerHTML = `
                 <div class="bubble">
-                    <div class="bubble-content">${sanitizeHTML(message)}</div>
+                    <div class="bubble-content">${message}</div>
                     <div class="timestamp">${time}</div>
                 </div>
             `;
@@ -604,7 +753,7 @@ function injectStyles() {
         }
 
         function appendSystemMessage(msg) {
-            appendMessage("System", msg, "system", `sys-${Date.now()}`);
+            appendMessage("System", sanitizeHTML(msg), "system", `sys-${Date.now()}`);
         }
 
         function sanitizeHTML(str) {
@@ -633,7 +782,7 @@ function injectStyles() {
             socket.send(
                 JSON.stringify({ message: text, sender: "User", message_id: msgId })
             );
-            appendMessage("User", text, "user", msgId);
+            appendMessage("User", sanitizeHTML(text), "user", msgId);
             input.value = "";
             input.style.height = "auto"; // Reset height after sending
             chatMessages.scrollTop = chatMessages.scrollHeight;

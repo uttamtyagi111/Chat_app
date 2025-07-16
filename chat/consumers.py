@@ -376,7 +376,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             message_id = data.get('message_id') or generate_room_id()
             timestamp = datetime.utcnow()
-            contact_id = data.get('contact_id') or generate_contact_id()
+            # contact_id = data.get('contact_id') or generate_contact_id()
+            contact_id = data.get('contact_id')
+            if not contact_id:
+                # Try to get from room data
+                room_collection = await sync_to_async(get_room_collection)()
+                room = await sync_to_async(lambda: room_collection.find_one({'room_id': self.room_name}))()
+                contact_id = room.get('contact_id') if room else generate_contact_id()
             if not contact_id:
                 print("[ERROR] No contact_id provided, cannot handle new message")
                 return
