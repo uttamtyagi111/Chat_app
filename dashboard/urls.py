@@ -3,6 +3,14 @@ from . import views
 from .views import ContactListCreateView, ContactRetrieveUpdateDeleteView, DeactivateRoom, AgentAnalytics, ExportChatHistoryAPIView
 from .views import AddAgentView,EditAgentAPIView,DeleteAgentAPIView,AgentDetailAPIView,AgentFeedbackList
 
+
+
+from .views import (
+
+    contact_list_api,
+    room_stats_api,
+    mark_messages_seen_api)
+
 urlpatterns = [
     # Agent URLs
     path('agents/', views.agent_list, name='agent-list'),
@@ -24,6 +32,14 @@ urlpatterns = [
     # # Global Conversation URLs
     path('conversations/', views.conversation_list, name='conversation-list'),
     path('conversations/<str:room_id>/', views.chat_room_view, name='chat_room_view'),
+    
+    
+        # Additional endpoints for WebSocket-like functionality
+    path('api/contacts/', contact_list_api, name='contact-list-api'),
+    path('api/stats/', room_stats_api, name='room-stats-api'),
+    path('api/chat/<str:room_id>/mark-seen/', mark_messages_seen_api, name='mark-messages-seen'),
+
+    
     
     ## Widget Conversation URLs
     path('conversations/widget/<str:widget_id>/', views.widget_conversations, name='widget_conversations'),
