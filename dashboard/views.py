@@ -358,16 +358,229 @@ logger = logging.getLogger(__name__)
 
 
 
+# @jwt_required
+# def conversation_list(request):
+#     try:
+#         user = request.user
+#         role = user.get('role')
+#         admin_id = user.get('admin_id')  # You still have this in the JWT payload
+
+#         assigned_widgets = []
+#         if role == 'agent':
+#             # 🔍 Fetch latest assigned widgets from the database
+#             user_record = get_admin_collection().find_one({'admin_id': admin_id})
+#             if user_record:
+#                 assigned_widgets = user_record.get('assigned_widgets', [])
+#                 if isinstance(assigned_widgets, str):
+#                     assigned_widgets = [assigned_widgets]
+
+#         room_collection = get_room_collection()
+
+#         pipeline = []
+
+#         # 🔐 Role-based filter
+#         if role == 'agent':
+#             pipeline.append({
+#                 "$match": {
+#                     "widget_id": {"$in": assigned_widgets}
+#                 }
+#             })
+
+#         pipeline += [
+#             {"$sort": {"created_at": DESCENDING}},
+
+#             # 🔗 Join widget info
+#             {
+#                 "$lookup": {
+#                     "from": "widgets",
+#                     "localField": "widget_id",
+#                     "foreignField": "widget_id",
+#                     "as": "widget"
+#                 }
+#             },
+#             {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
+
+#             # 🧮 Get last message, last timestamp, total messages from messages array
+#             {
+#                 "$addFields": {
+#                     "total_messages": { "$size": { "$ifNull": ["$messages", []] } },
+#                     "last_message_obj": {
+#                         "$arrayElemAt": [
+#                             { "$slice": ["$messages", -1] },
+#                             0
+#                         ]
+#                     }
+#                 }
+#             },
+
+#             # 🔗 Lookup agent details from admin collection
+#             {
+#                 "$lookup": {
+#                     "from": "admins",
+#                     "localField": "assigned_agent",
+#                     "foreignField": "admin_id",
+#                     "as": "agent"
+#                 }
+#             },
+#             {"$unwind": {"path": "$agent", "preserveNullAndEmptyArrays": True}},
+
+#             {
+#                 "$project": {
+#                     "_id": 0,
+#                     "room_id": 1,
+#                     "contact_id": 1,
+#                     "assigned_agent": 1,
+#                     "tags": 1,
+#                     "ip": "$user_location.user_ip",
+#                     "widget_id": 1,
+#                     "is_active": 1,
+#                     "created_at": 1,
+#                     "updated_at": 1,
+#                     "user_location": 1,
+#                     "total_messages": 1,
+
+#                     "last_message": "$last_message_obj.message",
+#                     "last_timestamp": "$last_message_obj.timestamp",
+
+#                     "widget": {
+#                         "widget_id": "$widget.widget_id",
+#                         "name": "$widget.name",
+#                         "is_active": "$widget.is_active",
+#                         "created_at": "$widget.created_at"
+#                     },
+
+#                     "agent": {
+#                         "admin_id": "$agent.admin_id",
+#                         "name": "$agent.name",
+#                         "email": "$agent.email",
+#                         "role": "$agent.role",
+#                         "is_online": "$agent.is_online",
+#                         "organization": "$agent.organization"
+#                     }
+#                 }
+#             },
+
+#             { "$sort": { "last_timestamp": DESCENDING } }
+#         ]
+
+#         results = list(room_collection.aggregate(pipeline))
+
+#         # 🧽 Format datetime fields
+#         for room in results:
+#             for key in ['created_at', 'updated_at', 'last_timestamp']:
+#                 if key in room and isinstance(room[key], datetime):
+#                     room[key] = room[key].isoformat()
+
+#             if room.get("widget") and isinstance(room["widget"].get("created_at"), datetime):
+#                 room["widget"]["created_at"] = room["widget"]["created_at"].isoformat()
+
+#         return JsonResponse({
+#             "rooms": results,
+#             "total_count": len(results)
+#         }, status=200)
+
+#     except Exception as e:
+#         return JsonResponse({
+#             "error": f"Error fetching rooms: {str(e)}",
+#             "rooms": [],
+#             "total_count": 0
+#         }, status=500)
+
+
+
+# @jwt_required
+# def chat_room_view(request, room_id):
+#     try:
+#         user = request.jwt_user
+#         role = user.get("role")
+#         admin_id = user.get("admin_id")
+
+#         chat_collection = get_chat_collection()
+#         rooms_collection = get_room_collection()
+#         # widgets_collection = get_widget_collection()
+#         agents_collection = get_admin_collection()
+
+#         # Fetch the room to get widget_id
+#         room = rooms_collection.find_one({"room_id": room_id})
+#         if not room:
+#             return JsonResponse({
+#                 'success': False,
+#                 'error': 'Room not found',
+#                 'messages': [],
+#                 'room_id': room_id
+#             }, status=404)
+
+#         widget_id = room.get("widget_id")
+#         assigned_agent = room.get("assigned_agent")
+#         tags = room.get("tags", [])
+
+#         # Agent access check
+#         if role == "agent":
+#             agent = agents_collection.find_one({"admin_id": admin_id})
+#             assigned_widgets = agent.get("assigned_widgets", []) if agent else []
+
+#             if widget_id not in assigned_widgets:
+#                 return JsonResponse({
+#                     'success': False,
+#                     'error': 'Access denied. You are not allowed to access this room.',
+#                     'messages': [],
+#                     'room_id': room_id
+#                 }, status=403)
+
+#         # Fetch messages for the room
+#         messages = list(chat_collection.find({'room_id': room_id}).sort('timestamp', ASCENDING))
+
+#         for msg in messages:
+#             msg['_id'] = str(msg['_id'])
+#             if isinstance(msg['timestamp'], datetime):
+#                 msg['timestamp'] = msg['timestamp'].isoformat()
+
+#         return JsonResponse({
+#             'success': True,
+#             'messages': messages,
+#             'room_id': room_id,
+#             'tags': tags,
+#             'assigned_agent': assigned_agent,
+#             'widget_id': widget_id,
+#         })
+
+#     except Exception as e:
+#         return JsonResponse({
+#             'success': False,
+#             'error': f"Failed to load chat messages: {str(e)}",
+#             'messages': [],
+#             'room_id': room_id
+#         }, status=500)
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.views import View
+from datetime import datetime
+from pymongo import ASCENDING, DESCENDING
+import json
+from wish_bot.db import (
+    get_room_collection,
+    get_chat_collection,
+    get_contact_collection,
+    get_admin_collection,
+    get_trigger_collection,
+    get_widget_collection
+)
+from utils.redis_client import redis_client
+  # Assuming you have this decorator
+
+
 @jwt_required
-def conversation_list(request):
+def conversation_list(request):  # Changed from enhanced_conversation_list
+    """Enhanced version of your conversation_list with additional WebSocket-like data"""
     try:
-        user = request.user
+        user = request.jwt_user
         role = user.get('role')
-        admin_id = user.get('admin_id')  # You still have this in the JWT payload
+        admin_id = user.get('admin_id')
 
         assigned_widgets = []
         if role == 'agent':
-            # 🔍 Fetch latest assigned widgets from the database
             user_record = get_admin_collection().find_one({'admin_id': admin_id})
             if user_record:
                 assigned_widgets = user_record.get('assigned_widgets', [])
@@ -375,10 +588,11 @@ def conversation_list(request):
                     assigned_widgets = [assigned_widgets]
 
         room_collection = get_room_collection()
+        contact_collection = get_contact_collection()
 
         pipeline = []
 
-        # 🔐 Role-based filter
+        # Role-based filter
         if role == 'agent':
             pipeline.append({
                 "$match": {
@@ -389,7 +603,7 @@ def conversation_list(request):
         pipeline += [
             {"$sort": {"created_at": DESCENDING}},
 
-            # 🔗 Join widget info
+            # Join widget info
             {
                 "$lookup": {
                     "from": "widgets",
@@ -400,7 +614,18 @@ def conversation_list(request):
             },
             {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
 
-            # 🧮 Get last message, last timestamp, total messages from messages array
+            # Join contact info
+            {
+                "$lookup": {
+                    "from": "contacts",
+                    "localField": "contact_id",
+                    "foreignField": "contact_id",
+                    "as": "contact"
+                }
+            },
+            {"$unwind": {"path": "$contact", "preserveNullAndEmptyArrays": True}},
+
+            # Get last message, last timestamp, total messages from messages array
             {
                 "$addFields": {
                     "total_messages": { "$size": { "$ifNull": ["$messages", []] } },
@@ -413,7 +638,7 @@ def conversation_list(request):
                 }
             },
 
-            # 🔗 Lookup agent details from admin collection
+            # Lookup agent details from admin collection
             {
                 "$lookup": {
                     "from": "admins",
@@ -456,6 +681,14 @@ def conversation_list(request):
                         "role": "$agent.role",
                         "is_online": "$agent.is_online",
                         "organization": "$agent.organization"
+                    },
+
+                    # Contact information
+                    "contact": {
+                        "contact_id": "$contact.contact_id",
+                        "name": "$contact.name",
+                        "email": "$contact.email",
+                        "phone": "$contact.phone"
                     }
                 }
             },
@@ -465,8 +698,26 @@ def conversation_list(request):
 
         results = list(room_collection.aggregate(pipeline))
 
-        # 🧽 Format datetime fields
+        # Add unread counts from Redis (like WebSocket does)
         for room in results:
+            room_id = room['room_id']
+            unread_key = f'unread:{room_id}'
+            room['unread_count'] = int(redis_client.get(unread_key) or 0)
+            
+            # Add typing status from Redis
+            typing_key = f'typing:{room_id}:*'
+            typing_users = []
+            for key in redis_client.scan_iter(match=typing_key):
+                typing_content = redis_client.get(key)
+                if typing_content:
+                    user_id = key.split(':')[-1]
+                    typing_users.append({
+                        'user_id': user_id,
+                        'content': typing_content
+                    })
+            room['typing_users'] = typing_users
+
+            # Format datetime fields
             for key in ['created_at', 'updated_at', 'last_timestamp']:
                 if key in room and isinstance(room[key], datetime):
                     room[key] = room[key].isoformat()
@@ -487,9 +738,9 @@ def conversation_list(request):
         }, status=500)
 
 
-
 @jwt_required
-def chat_room_view(request, room_id):
+def chat_room_view(request, room_id):  # Changed from enhanced_chat_room_view
+    """Enhanced version of your chat_room_view with additional WebSocket-like data"""
     try:
         user = request.jwt_user
         role = user.get("role")
@@ -497,8 +748,8 @@ def chat_room_view(request, room_id):
 
         chat_collection = get_chat_collection()
         rooms_collection = get_room_collection()
-        # widgets_collection = get_widget_collection()
         agents_collection = get_admin_collection()
+        contact_collection = get_contact_collection()
 
         # Fetch the room to get widget_id
         room = rooms_collection.find_one({"room_id": room_id})
@@ -513,6 +764,7 @@ def chat_room_view(request, room_id):
         widget_id = room.get("widget_id")
         assigned_agent = room.get("assigned_agent")
         tags = room.get("tags", [])
+        contact_id = room.get("contact_id")
 
         # Agent access check
         if role == "agent":
@@ -535,6 +787,50 @@ def chat_room_view(request, room_id):
             if isinstance(msg['timestamp'], datetime):
                 msg['timestamp'] = msg['timestamp'].isoformat()
 
+        # Get contact information
+        contact_info = {}
+        if contact_id:
+            contact = contact_collection.find_one({'contact_id': contact_id})
+            if contact:
+                contact_info = {
+                    'contact_id': contact.get('contact_id'),
+                    'name': contact.get('name', ''),
+                    'email': contact.get('email', ''),
+                    'phone': contact.get('phone', '')
+                }
+
+        # Get unread count and reset it if agent is viewing
+        unread_key = f'unread:{room_id}'
+        unread_count = int(redis_client.get(unread_key) or 0)
+        
+        # Reset unread count when agent views the room
+        if role == 'agent':
+            redis_client.delete(unread_key)
+
+        # Get typing status
+        typing_key = f'typing:{room_id}:*'
+        typing_users = []
+        for key in redis_client.scan_iter(match=typing_key):
+            typing_content = redis_client.get(key)
+            if typing_content:
+                user_id = key.split(':')[-1]
+                typing_users.append({
+                    'user_id': user_id,
+                    'content': typing_content
+                })
+
+        # Get agent info if assigned
+        agent_info = {}
+        if assigned_agent:
+            agent = agents_collection.find_one({'admin_id': assigned_agent})
+            if agent:
+                agent_info = {
+                    'admin_id': agent.get('admin_id'),
+                    'name': agent.get('name'),
+                    'email': agent.get('email'),
+                    'is_online': agent.get('is_online', False)
+                }
+
         return JsonResponse({
             'success': True,
             'messages': messages,
@@ -542,6 +838,12 @@ def chat_room_view(request, room_id):
             'tags': tags,
             'assigned_agent': assigned_agent,
             'widget_id': widget_id,
+            'contact': contact_info,
+            'agent': agent_info,
+            'unread_count': unread_count,
+            'typing_users': typing_users,
+            'total_messages': len(messages),
+            'is_active': room.get('is_active', False)
         })
 
     except Exception as e:
@@ -551,6 +853,194 @@ def chat_room_view(request, room_id):
             'messages': [],
             'room_id': room_id
         }, status=500)
+
+
+@jwt_required
+def contact_list_api(request):
+    """API to fetch contacts with filtering"""
+    try:
+        user = request.jwt_user
+        role = user.get('role')
+        admin_id = user.get('admin_id')
+
+        # Get query parameters
+        widget_id = request.GET.get('widget_id')
+        limit = int(request.GET.get('limit', 50))
+        offset = int(request.GET.get('offset', 0))
+
+        contact_collection = get_contact_collection()
+        
+        # Build query filter
+        contact_filter = {}
+        
+        # Role-based access control
+        if role == 'agent':
+            agent = get_admin_collection().find_one({'admin_id': admin_id})
+            assigned_widgets = agent.get('assigned_widgets', []) if agent else []
+            
+            if widget_id:
+                if widget_id not in assigned_widgets:
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'Access denied for this widget'
+                    }, status=403)
+                contact_filter['widget_id'] = widget_id
+            else:
+                contact_filter['widget_id'] = {'$in': assigned_widgets}
+        elif widget_id:
+            contact_filter['widget_id'] = widget_id
+
+        # Get total count
+        total_count = contact_collection.count_documents(contact_filter)
+
+        # Fetch contacts with pagination
+        contacts = list(contact_collection.find(
+            contact_filter,
+            {'_id': 0}
+        ).sort('created_at', DESCENDING).skip(offset).limit(limit))
+
+        # Format datetime fields
+        for contact in contacts:
+            for key in ['timestamp', 'created_at', 'updated_at']:
+                if key in contact and isinstance(contact[key], datetime):
+                    contact[key] = contact[key].isoformat()
+
+        return JsonResponse({
+            'success': True,
+            'contacts': contacts,
+            'total_count': total_count,
+            'returned_count': len(contacts),
+            'offset': offset,
+            'limit': limit
+        })
+
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': f"Error fetching contacts: {str(e)}"
+        }, status=500)
+
+
+@jwt_required
+def room_stats_api(request):
+    """API to fetch room statistics with role-based access"""
+    try:
+        user = request.jwt_user
+        role = user.get('role')
+        admin_id = user.get('admin_id')
+
+        room_collection = get_room_collection()
+        chat_collection = get_chat_collection()
+        contact_collection = get_contact_collection()
+
+        # Build base filter for role-based access
+        base_filter = {}
+        if role == 'agent':
+            agent = get_admin_collection().find_one({'admin_id': admin_id})
+            assigned_widgets = agent.get('assigned_widgets', []) if agent else []
+            base_filter['widget_id'] = {'$in': assigned_widgets}
+
+        # Get basic counts
+        total_rooms = room_collection.count_documents(base_filter)
+        active_rooms = room_collection.count_documents({**base_filter, 'is_active': True})
+        
+        # Get contacts count
+        contact_filter = {}
+        if role == 'agent':
+            contact_filter['widget_id'] = {'$in': assigned_widgets}
+        total_contacts = contact_collection.count_documents(contact_filter)
+
+        # Get messages count
+        room_ids = [room['room_id'] for room in room_collection.find(base_filter, {'room_id': 1})]
+        total_messages = chat_collection.count_documents({'room_id': {'$in': room_ids}})
+
+        # Get total unread count across accessible rooms
+        total_unread = 0
+        for room in room_collection.find({**base_filter, 'is_active': True}):
+            unread_key = f'unread:{room["room_id"]}'
+            total_unread += int(redis_client.get(unread_key) or 0)
+
+        # Get agent assignment stats
+        assigned_rooms = room_collection.count_documents({
+            **base_filter,
+            'assigned_agent': {'$exists': True, '$ne': None}
+        })
+
+        stats = {
+            'total_rooms': total_rooms,
+            'active_rooms': active_rooms,
+            'total_contacts': total_contacts,
+            'total_messages': total_messages,
+            'total_unread': total_unread,
+            'assigned_rooms': assigned_rooms,
+            'unassigned_rooms': active_rooms - assigned_rooms,
+            'accessible_widgets': len(assigned_widgets) if role == 'agent' else 'all'
+        }
+
+        return JsonResponse({
+            'success': True,
+            'stats': stats
+        })
+
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': f"Error fetching stats: {str(e)}"
+        }, status=500)
+
+
+@jwt_required
+def mark_messages_seen_api(request, room_id):
+    """API to mark messages as seen"""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+
+    try:
+        user = request.jwt_user
+        role = user.get('role')
+        admin_id = user.get('admin_id')
+
+        # Role-based access check
+        if role == 'agent':
+            room_collection = get_room_collection()
+            room = room_collection.find_one({'room_id': room_id})
+            if not room:
+                return JsonResponse({'error': 'Room not found'}, status=404)
+
+            agent = get_admin_collection().find_one({'admin_id': admin_id})
+            assigned_widgets = agent.get('assigned_widgets', []) if agent else []
+            
+            if room.get('widget_id') not in assigned_widgets:
+                return JsonResponse({'error': 'Access denied'}, status=403)
+
+        # Mark messages as seen
+        chat_collection = get_chat_collection()
+        result = chat_collection.update_many(
+            {'room_id': room_id, 'seen': False},
+            {'$set': {'seen': True, 'seen_at': datetime.utcnow()}}
+        )
+
+        # Reset unread count
+        unread_key = f'unread:{room_id}'
+        redis_client.delete(unread_key)
+
+        return JsonResponse({
+            'success': True,
+            'messages_marked': result.modified_count
+        })
+
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': f"Error marking messages as seen: {str(e)}"
+        }, status=500)
+        
+
+
+
+
+###############ended#######
+
 
 
 @jwt_required
