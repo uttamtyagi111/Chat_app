@@ -731,7 +731,7 @@ class ContactListCreateView(APIView):
         token_admin_id = user.get("admin_id")
 
         data = request.data
-        required_fields = ['name', 'email', 'widget_id']
+        required_fields = ['widget_id']
 
         for field in required_fields:
             if not data.get(field):
