@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from django.test import tag
 from pymongo.errors import DuplicateKeyError
 from utils.random_id import generate_contact_id  # Import the contact ID generator
-from wish_bot.db import  get_admin_collection, get_contact_collection, get_widget_collection # Import the contacts collection
+from wish_bot.db import  get_admin_collection, get_contact_collection, get_shortcut_collection, get_tag_collection, get_widget_collection # Import the contacts collection
 import csv,io,json,uuid
 from datetime import datetime
 from pymongo.errors import PyMongoError  # Assuming PyMongo for MongoDB
@@ -1139,20 +1139,84 @@ def widget_conversations(request, widget_id):
 
 
 
+
+@jwt_required
+def get_shortcuts_by_widget(request, widget_id):
+    try:
+        user = request.user
+        role = user.get('role')
+        admin_id = user.get('admin_id')
+
+        # Access control for agents
+        if role == 'agent':
+            user_record = get_admin_collection().find_one({'admin_id': admin_id})
+            assigned_widgets = user_record.get('assigned_widgets', []) if user_record else []
+            if isinstance(assigned_widgets, str):
+                assigned_widgets = [assigned_widgets]
+            if widget_id not in assigned_widgets:
+                return JsonResponse({"error": "Access denied for this widget"}, status=403)
+
+        shortcuts = list(get_shortcut_collection().find({"widget_id": widget_id}, {"_id": 0}))
+        return JsonResponse({"shortcuts": shortcuts}, status=200)
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@jwt_required
+def get_tags_by_widget(request, widget_id):
+    try:
+        user = request.user
+        role = user.get('role')
+        admin_id = user.get('admin_id')
+
+        if role == 'agent':
+            user_record = get_admin_collection().find_one({'admin_id': admin_id})
+            assigned_widgets = user_record.get('assigned_widgets', []) if user_record else []
+            if isinstance(assigned_widgets, str):
+                assigned_widgets = [assigned_widgets]
+            if widget_id not in assigned_widgets:
+                return JsonResponse({"error": "Access denied for this widget"}, status=403)
+
+        tags = list(get_tag_collection().find({"widget_id": widget_id}, {"_id": 0}))
+        return JsonResponse({"tags": tags}, status=200)
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+
+
+
+@jwt_required
+def get_triggers_by_widget(request, widget_id):
+    try:
+        user = request.user
+        role = user.get('role')
+        admin_id = user.get('admin_id')
+
+        if role == 'agent':
+            user_record = get_admin_collection().find_one({'admin_id': admin_id})
+            assigned_widgets = user_record.get('assigned_widgets', []) if user_record else []
+            if isinstance(assigned_widgets, str):
+                assigned_widgets = [assigned_widgets]
+            if widget_id not in assigned_widgets:
+                return JsonResponse({"error": "Access denied for this widget"}, status=403)
+
+        triggers = list(get_trigger_collection().find({"widget_id": widget_id}, {"_id": 0}))
+        return JsonResponse({"triggers": triggers}, status=200)
+
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+
 class ContactListCreateView(APIView):
-    authentication_classes = []
+    authentication_classes = [JWTAuthentication]
     permission_classes = []
-
-    def get_user_from_request(self, request):
-        auth = get_authorization_header(request).decode('utf-8')
-        if auth.startswith('Bearer '):
-            token = auth.split(' ')[1]
-            return decode_token(token)  # Should return a user dict
-        return None
-
     # @jwt_required
     def get(self, request):
-        user = self.get_user_from_request(request)
+        user = request.user
         if not user:
             return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
         
@@ -1212,7 +1276,7 @@ class ContactListCreateView(APIView):
 
     # @jwt_required
     def post(self, request):
-        user = self.get_user_from_request(request)
+        user = request.user
         if not user:
             return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
         # Ensure user is authenticated and has a role
@@ -1221,18 +1285,18 @@ class ContactListCreateView(APIView):
         token_admin_id = user.get("admin_id")
 
         data = request.data
-        required_fields = ['name', 'email', 'widget_id']
+        required_fields = ['widget_id']
 
         for field in required_fields:
             if not data.get(field):
                 return Response({'error': f'{field} is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         widget_id = data.get('widget_id')
-        agent_id = data.get('agent_id') or token_admin_id  # fallback to logged-in user for agent
+        admin_id = data.get('admin_id') or token_admin_id  # fallback to logged-in user for agent
 
         # Agent role restrictions
         if role == 'agent':
-            if agent_id != token_admin_id:
+            if admin_id != token_admin_id:
                 return Response({'error': 'Agents can only create contacts for themselves.'}, status=403)
             agent = get_admin_collection().find_one({'admin_id': token_admin_id})
             allowed_widgets = agent.get('assigned_widgets', [])
@@ -1240,17 +1304,23 @@ class ContactListCreateView(APIView):
                 return Response({'error': 'Access denied to this widget'}, status=403)
 
         contact = {
-            'contact_id': generate_contact_id(),
+            'contact_id': data.get('contact_id') or generate_contact_id(),
             'name': data.get('name'),
             'email': data.get('email'),
             'phone': data.get('phone', ''),
             'secondary_email': data.get('secondary_email', ''),
             'address': data.get('address', ''),
-            'agent_id': agent_id,
+            'admin_id': admin_id,
             'widget_id': widget_id,
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
         }
+        
+        # Add any custom fields
+        reserved_keys = {'contact_id', 'widget_id', 'admin_id', 'created_at', 'updated_at', 'name', 'email', 'phone', 'secondary_email', 'address'}
+        for key, value in data.items():
+            if key not in reserved_keys:
+                contact[key] = value
 
         try:
             result = get_contact_collection().insert_one(contact)
@@ -1448,152 +1518,539 @@ class AgentFeedbackList(APIView):
             "feedback": feedback_list
         }, status=200)
 
-
+from datetime import datetime, timedelta
+from collections import defaultdict
+from django.utils import timezone
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+import statistics
 
 class AgentAnalytics(APIView):
     permission_classes = [IsSuperAdmin]
-    authentication_classes = [JWTAuthentication]# No DRF permission checks
+    authentication_classes = [JWTAuthentication]
     """
-    Get analytics for a specific agent, including chat history, response times, and feedback.
+    Get comprehensive analytics for a specific agent, including chat history, 
+    response times, session data, and feedback.
     Supports optional filters for date range, preview messages, grouping by day/week, and rating.
     """
+    
     def get(self, request, agent_name):
-        chat_rooms = get_room_collection()
-        messages = get_chat_collection()
+        try:
+            chat_rooms = get_room_collection()
+            messages = get_chat_collection()
 
-        # Optional Query Params
-        start_date = request.GET.get('start_date')
-        end_date = request.GET.get('end_date')
-        include_preview = request.GET.get('include_preview') == 'true'
-        group_by = request.GET.get('group_by')  # 'day' or 'week'
-        rating_filter = request.GET.get("rating")
+            # Optional Query Params
+            start_date = request.GET.get('start_date')
+            end_date = request.GET.get('end_date')
+            include_preview = request.GET.get('include_preview') == 'true'
+            group_by = request.GET.get('group_by')  # 'day' or 'week'
+            rating_filter = request.GET.get("rating")
 
-        # Parse date filters
-        if start_date:
-            start_date = datetime.strptime(start_date, "%Y-%m-%d")
-        if end_date:
-            end_date = datetime.strptime(end_date, "%Y-%m-%d")
-        if rating_filter:
-            try:
-                rating_filter = int(rating_filter)
-            except ValueError:
-                return Response({"error": "Invalid rating filter"}, status=400)
-
-        # Step 1: Find rooms assigned to the agent
-        room_filter = {"assigned_agent": agent_name}
-        if start_date or end_date:
-            room_filter["created_at"] = {}
+            # Parse date filters
+            date_filter = {}
             if start_date:
-                room_filter["created_at"]["$gte"] = start_date
+                try:
+                    start_date = datetime.strptime(start_date, "%Y-%m-%d")
+                    date_filter["$gte"] = start_date
+                except ValueError:
+                    return Response({"error": "Invalid start_date format. Use YYYY-MM-DD"}, status=400)
+            
             if end_date:
-                room_filter["created_at"]["$lte"] = end_date
+                try:
+                    end_date = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)  # Include full day
+                    date_filter["$lt"] = end_date
+                except ValueError:
+                    return Response({"error": "Invalid end_date format. Use YYYY-MM-DD"}, status=400)
 
-        rooms = list(chat_rooms.find(room_filter))
+            if rating_filter:
+                try:
+                    rating_filter = int(rating_filter)
+                    if rating_filter < 1 or rating_filter > 5:
+                        return Response({"error": "Rating filter must be between 1 and 5"}, status=400)
+                except ValueError:
+                    return Response({"error": "Invalid rating filter"}, status=400)
 
-        if not rooms:
-            return Response({
-                "agent_name": agent_name,
-                "total_chats_handled": 0,
-                "active_chat_sessions": 0,
-                "average_response_time_seconds": None,
-                "chat_history": [],
-            }, status=200)
+            # Step 1: Find rooms assigned to the agent
+            room_filter = {"assigned_agent": agent_name}
+            
+            # Apply date filter to room creation if provided
+            if date_filter:
+                room_filter["created_at"] = date_filter.copy()
 
-        room_ids = [room["room_id"] for room in rooms]
+            rooms = list(chat_rooms.find(room_filter))
+
+            if not rooms:
+                return self._empty_response(agent_name)
+
+            room_ids = [room["room_id"] for room in rooms]
+
+            # Step 2: Get messages for these rooms
+            message_filter = {"room_id": {"$in": room_ids}}
+            
+            # Apply date filter to messages if provided
+            if date_filter:
+                message_filter["timestamp"] = date_filter.copy()
+
+            all_messages = list(messages.find(message_filter).sort("timestamp", 1))
+
+            # Step 3: Process analytics
+            analytics_data = self._process_analytics(rooms, all_messages, rating_filter, include_preview)
+
+            # Step 4: Group stats if requested
+            if group_by in ["day", "week"]:
+                return self._get_grouped_stats(analytics_data, group_by, agent_name)
+
+            return Response(analytics_data, status=200)
+
+        except Exception as e:
+            return Response({"error": f"Error processing analytics: {str(e)}"}, status=500)
+
+    def _empty_response(self, agent_name):
+        """Return empty response when no data is found"""
+        return Response({
+            "agent_name": agent_name,
+            "total_chats_handled": 0,
+            "active_chat_sessions": 0,
+            "completed_chat_sessions": 0,
+            "average_response_time_seconds": None,
+            "average_first_response_time_seconds": None,
+            "median_response_time_seconds": None,
+            "total_messages_sent": 0,
+            "total_session_duration_minutes": 0,
+            "average_session_duration_minutes": None,
+            "average_chat_duration_minutes": None,
+            "response_time_distribution": {
+                "under_1_min": 0,
+                "1_5_min": 0,
+                "5_15_min": 0,
+                "over_15_min": 0
+            },
+            "feedback_summary": {
+                "total_ratings": 0,
+                "average_rating": None,
+                "rating_distribution": {str(i): 0 for i in range(1, 6)}
+            },
+            "chat_history": [],
+        }, status=200)
+
+    def _process_analytics(self, rooms, all_messages, rating_filter, include_preview):
+        """Process analytics data for the agent"""
+        
+        # Group messages by room
+        messages_by_room = defaultdict(list)
+        for msg in all_messages:
+            messages_by_room[msg["room_id"]].append(msg)
 
         chat_history = []
         response_times = []
+        first_response_times = []
+        agent_message_count = 0
+        total_session_duration = 0
+        total_chat_duration = 0
+        feedback_data = []
 
         for room in rooms:
             room_id = room["room_id"]
-
-            msgs = list(messages.find({"room_id": room_id}).sort("timestamp", 1))
+            msgs = messages_by_room.get(room_id, [])
+            
             if not msgs:
                 continue
 
-            user_first = next((m for m in msgs if m["sender"] == "User"), None)
-            agent_first = next((m for m in msgs if m["sender"] == "Agent"), None)
+            # Calculate response times
+            room_response_times = self._calculate_response_times(msgs)
+            first_response_time = self._calculate_first_response_time(msgs)
+            
+            if room_response_times:
+                response_times.extend(room_response_times)
+            if first_response_time:
+                first_response_times.append(first_response_time)
 
-            first_response_time = (
-                (agent_first["timestamp"] - user_first["timestamp"]).total_seconds()
-                if user_first and agent_first else None
-            )
+            # Calculate chat duration (first to last message)
+            chat_duration = (msgs[-1]["timestamp"] - msgs[0]["timestamp"]).total_seconds() / 60
+            total_chat_duration += chat_duration
 
-            if first_response_time is not None:
-                response_times.append(first_response_time)
+            # Count agent messages
+            agent_messages = [m for m in msgs if m.get("sender_type") == "agent"]
+            agent_message_count += len(agent_messages)
 
-            time_spent = (msgs[-1]["timestamp"] - msgs[0]["timestamp"]).total_seconds()
+            # Calculate session duration from session history
+            session_duration = self._calculate_session_duration(room)
+            total_session_duration += session_duration
 
+            # Process feedback
             feedback = room.get("user_feedback", {})
             rating = feedback.get("rating")
             comment = feedback.get("comment")
             
             # Convert rating to int safely
             try:
-                rating_int = int(rating)
+                rating_int = int(rating) if rating else None
             except (ValueError, TypeError):
                 rating_int = None
-
 
             # Filter by rating if provided
             if rating_filter is not None and rating_int != rating_filter:
                 continue
 
+            # Collect feedback data
+            if rating_int:
+                feedback_data.append({
+                    "rating": rating_int,
+                    "comment": comment,
+                    "room_id": room_id
+                })
+
+            # Build chat history item
             history_item = {
                 "room_id": room_id,
                 "created_at": room["created_at"].isoformat(),
-                "closed_at": room.get("closed_at", None).isoformat() if room.get("closed_at") else None,
+                "closed_at": room.get("closed_at").isoformat() if room.get("closed_at") else None,
                 "last_message_time": msgs[-1]["timestamp"].isoformat(),
                 "total_messages": len(msgs),
+                "agent_messages": len(agent_messages),
+                "customer_messages": len([m for m in msgs if m.get("sender_type") == "customer"]),
                 "first_response_time_seconds": first_response_time,
-                "time_spent_seconds": time_spent,
+                "average_response_time_seconds": sum(room_response_times) / len(room_response_times) if room_response_times else None,
+                "chat_duration_minutes": chat_duration,
+                "session_duration_minutes": session_duration,
+                "is_active": room.get("closed_at") is None,
                 "user_feedback": {
-                    "rating": rating,
+                    "rating": rating_int,
                     "comment": comment
                 } if feedback else None
             }
 
             if include_preview:
                 history_item["preview"] = {
-                    "first": msgs[0]["sender"] + ": " + msgs[0].get("message", ""),
-                    "last": msgs[-1]["sender"] + ": " + msgs[-1].get("message", "")
+                    "first": f"{msgs[0].get('sender_type', 'unknown')}: {msgs[0].get('message', '')[:100]}",
+                    "last": f"{msgs[-1].get('sender_type', 'unknown')}: {msgs[-1].get('message', '')[:100]}"
                 }
 
             chat_history.append(history_item)
 
-        # Group stats if requested
-        if group_by in ["day", "week"]:
-            grouped = defaultdict(list)
-            for item in chat_history:
-                key_date = datetime.fromisoformat(item["created_at"])
-                key = key_date.strftime("%Y-%m-%d") if group_by == "day" else key_date.strftime("%Y-W%U")
-                grouped[key].append(item)
+        # Calculate summary statistics
+        active_sessions = sum(1 for item in chat_history if item["is_active"])
+        completed_sessions = len(chat_history) - active_sessions
+        
+        # Response time statistics
+        avg_response_time = sum(response_times) / len(response_times) if response_times else None
+        avg_first_response_time = sum(first_response_times) / len(first_response_times) if first_response_times else None
+        median_response_time = statistics.median(response_times) if response_times else None
+        
+        # Response time distribution
+        response_time_distribution = self._calculate_response_time_distribution(response_times)
+        
+        # Session statistics
+        avg_session_duration = total_session_duration / len(chat_history) if chat_history else None
+        avg_chat_duration = total_chat_duration / len(chat_history) if chat_history else None
+        
+        # Feedback summary
+        feedback_summary = self._calculate_feedback_summary(feedback_data)
 
-            grouped_stats = []
-            for key, items in grouped.items():
-                valid_times = [i["first_response_time_seconds"] for i in items if i["first_response_time_seconds"] is not None]
-                avg_response = sum(valid_times) / len(valid_times) if valid_times else None
-                grouped_stats.append({
-                    "period": key,
-                    "chats": len(items),
-                    "average_response_time_seconds": avg_response
-                })
+        return {
+            "agent_name": room["assigned_agent"] if rooms else "Unknown",
+            "total_chats_handled": len(chat_history),
+            "active_chat_sessions": active_sessions,
+            "completed_chat_sessions": completed_sessions,
+            "average_response_time_seconds": round(avg_response_time, 2) if avg_response_time else None,
+            "average_first_response_time_seconds": round(avg_first_response_time, 2) if avg_first_response_time else None,
+            "median_response_time_seconds": round(median_response_time, 2) if median_response_time else None,
+            "total_messages_sent": agent_message_count,
+            "total_session_duration_minutes": round(total_session_duration, 2),
+            "average_session_duration_minutes": round(avg_session_duration, 2) if avg_session_duration else None,
+            "average_chat_duration_minutes": round(avg_chat_duration, 2) if avg_chat_duration else None,
+            "response_time_distribution": response_time_distribution,
+            "feedback_summary": feedback_summary,
+            "chat_history": chat_history,
+        }
 
-            return Response({
-                "agent_name": agent_name,
-                "group_by": group_by,
-                "summary": grouped_stats
-            }, status=200)
+    def _calculate_response_times(self, msgs):
+        """Calculate response times for agent messages"""
+        response_times = []
+        
+        for i in range(len(msgs) - 1):
+            current_msg = msgs[i]
+            
+            # If current message is from customer
+            if current_msg.get("sender_type") == "customer":
+                # Find next agent response
+                for j in range(i + 1, len(msgs)):
+                    next_msg = msgs[j]
+                    if next_msg.get("sender_type") == "agent":
+                        response_time = (next_msg["timestamp"] - current_msg["timestamp"]).total_seconds()
+                        response_times.append(response_time)
+                        break
+        
+        return response_times
+
+    def _calculate_first_response_time(self, msgs):
+        """Calculate first response time (first customer message to first agent response)"""
+        first_customer_msg = None
+        first_agent_response = None
+        
+        for msg in msgs:
+            if msg.get("sender_type") == "customer" and first_customer_msg is None:
+                first_customer_msg = msg
+            elif msg.get("sender_type") == "agent" and first_customer_msg and first_agent_response is None:
+                first_agent_response = msg
+                break
+        
+        if first_customer_msg and first_agent_response:
+            return (first_agent_response["timestamp"] - first_customer_msg["timestamp"]).total_seconds()
+        
+        return None
+
+    def _calculate_session_duration(self, room):
+        """Calculate total session duration from session history"""
+        session_history = room.get("session_history", [])
+        total_duration = 0
+        
+        for session in session_history:
+            if session.get("start_time") and session.get("end_time"):
+                duration = (session["end_time"] - session["start_time"]).total_seconds() / 60
+                total_duration += duration
+        
+        return total_duration
+
+    def _calculate_response_time_distribution(self, response_times):
+        """Calculate response time distribution"""
+        distribution = {
+            "under_1_min": 0,
+            "1_5_min": 0,
+            "5_15_min": 0,
+            "over_15_min": 0
+        }
+        
+        for rt in response_times:
+            rt_minutes = rt / 60
+            if rt_minutes < 1:
+                distribution["under_1_min"] += 1
+            elif rt_minutes < 5:
+                distribution["1_5_min"] += 1
+            elif rt_minutes < 15:
+                distribution["5_15_min"] += 1
+            else:
+                distribution["over_15_min"] += 1
+        
+        return distribution
+
+    def _calculate_feedback_summary(self, feedback_data):
+        """Calculate feedback summary statistics"""
+        total_ratings = len(feedback_data)
+        
+        if total_ratings == 0:
+            return {
+                "total_ratings": 0,
+                "average_rating": None,
+                "rating_distribution": {str(i): 0 for i in range(1, 6)}
+            }
+        
+        ratings = [f["rating"] for f in feedback_data]
+        average_rating = sum(ratings) / len(ratings)
+        
+        rating_distribution = {str(i): 0 for i in range(1, 6)}
+        for rating in ratings:
+            rating_distribution[str(rating)] += 1
+        
+        return {
+            "total_ratings": total_ratings,
+            "average_rating": round(average_rating, 2),
+            "rating_distribution": rating_distribution
+        }
+
+    def _get_grouped_stats(self, analytics_data, group_by, agent_name):
+        """Return grouped statistics by day or week"""
+        grouped = defaultdict(list)
+        
+        for item in analytics_data["chat_history"]:
+            key_date = datetime.fromisoformat(item["created_at"])
+            if group_by == "day":
+                key = key_date.strftime("%Y-%m-%d")
+            else:  # week
+                key = key_date.strftime("%Y-W%U")
+            grouped[key].append(item)
+
+        grouped_stats = []
+        for key, items in sorted(grouped.items()):
+            # Calculate aggregated stats for this period
+            total_chats = len(items)
+            active_chats = sum(1 for item in items if item["is_active"])
+            
+            # Response time stats
+            first_response_times = [item["first_response_time_seconds"] for item in items if item["first_response_time_seconds"]]
+            avg_first_response = sum(first_response_times) / len(first_response_times) if first_response_times else None
+            
+            # Session duration stats
+            session_durations = [item["session_duration_minutes"] for item in items if item["session_duration_minutes"]]
+            avg_session_duration = sum(session_durations) / len(session_durations) if session_durations else None
+            
+            # Feedback stats
+            ratings = [item["user_feedback"]["rating"] for item in items if item["user_feedback"] and item["user_feedback"]["rating"]]
+            avg_rating = sum(ratings) / len(ratings) if ratings else None
+            
+            grouped_stats.append({
+                "period": key,
+                "total_chats": total_chats,
+                "active_chats": active_chats,
+                "completed_chats": total_chats - active_chats,
+                "average_first_response_time_seconds": round(avg_first_response, 2) if avg_first_response else None,
+                "average_session_duration_minutes": round(avg_session_duration, 2) if avg_session_duration else None,
+                "average_rating": round(avg_rating, 2) if avg_rating else None,
+                "total_ratings": len(ratings)
+            })
 
         return Response({
             "agent_name": agent_name,
-            "total_chats_handled": len(chat_history),
-            "active_chat_sessions": sum(1 for r in rooms if r.get('closed_at') is None),
-            "average_response_time_seconds": (
-                sum(response_times) / len(response_times) if response_times else None
-            ),
-            "chat_history": chat_history,
+            "group_by": group_by,
+            "summary": grouped_stats,
+            "total_periods": len(grouped_stats)
         }, status=200)
+
+# class AgentAnalytics(APIView):
+#     permission_classes = [IsSuperAdmin]
+#     authentication_classes = [JWTAuthentication]# No DRF permission checks
+#     """
+#     Get analytics for a specific agent, including chat history, response times, and feedback.
+#     Supports optional filters for date range, preview messages, grouping by day/week, and rating.
+#     """
+#     def get(self, request, agent_name):
+#         chat_rooms = get_room_collection()
+#         messages = get_chat_collection()
+
+#         # Optional Query Params
+#         start_date = request.GET.get('start_date')
+#         end_date = request.GET.get('end_date')
+#         include_preview = request.GET.get('include_preview') == 'true'
+#         group_by = request.GET.get('group_by')  # 'day' or 'week'
+#         rating_filter = request.GET.get("rating")
+
+#         # Parse date filters
+#         if start_date:
+#             start_date = datetime.strptime(start_date, "%Y-%m-%d")
+#         if end_date:
+#             end_date = datetime.strptime(end_date, "%Y-%m-%d")
+#         if rating_filter:
+#             try:
+#                 rating_filter = int(rating_filter)
+#             except ValueError:
+#                 return Response({"error": "Invalid rating filter"}, status=400)
+
+#         # Step 1: Find rooms assigned to the agent
+#         room_filter = {"assigned_agent": agent_name}
+#         if start_date or end_date:
+#             room_filter["created_at"] = {}
+#             if start_date:
+#                 room_filter["created_at"]["$gte"] = start_date
+#             if end_date:
+#                 room_filter["created_at"]["$lte"] = end_date
+
+#         rooms = list(chat_rooms.find(room_filter))
+
+#         if not rooms:
+#             return Response({
+#                 "agent_name": agent_name,
+#                 "total_chats_handled": 0,
+#                 "active_chat_sessions": 0,
+#                 "average_response_time_seconds": None,
+#                 "chat_history": [],
+#             }, status=200)
+
+#         room_ids = [room["room_id"] for room in rooms]
+
+#         chat_history = []
+#         response_times = []
+
+#         for room in rooms:
+#             room_id = room["room_id"]
+
+#             msgs = list(messages.find({"room_id": room_id}).sort("timestamp", 1))
+#             if not msgs:
+#                 continue
+
+#             user_first = next((m for m in msgs if m["sender"] == "User"), None)
+#             agent_first = next((m for m in msgs if m["sender"] == "Agent"), None)
+
+#             first_response_time = (
+#                 (agent_first["timestamp"] - user_first["timestamp"]).total_seconds()
+#                 if user_first and agent_first else None
+#             )
+
+#             if first_response_time is not None:
+#                 response_times.append(first_response_time)
+
+#             time_spent = (msgs[-1]["timestamp"] - msgs[0]["timestamp"]).total_seconds()
+
+#             feedback = room.get("user_feedback", {})
+#             rating = feedback.get("rating")
+#             comment = feedback.get("comment")
+            
+#             # Convert rating to int safely
+#             try:
+#                 rating_int = int(rating)
+#             except (ValueError, TypeError):
+#                 rating_int = None
+
+
+#             # Filter by rating if provided
+#             if rating_filter is not None and rating_int != rating_filter:
+#                 continue
+
+#             history_item = {
+#                 "room_id": room_id,
+#                 "created_at": room["created_at"].isoformat(),
+#                 "closed_at": room.get("closed_at", None).isoformat() if room.get("closed_at") else None,
+#                 "last_message_time": msgs[-1]["timestamp"].isoformat(),
+#                 "total_messages": len(msgs),
+#                 "first_response_time_seconds": first_response_time,
+#                 "time_spent_seconds": time_spent,
+#                 "user_feedback": {
+#                     "rating": rating,
+#                     "comment": comment
+#                 } if feedback else None
+#             }
+
+#             if include_preview:
+#                 history_item["preview"] = {
+#                     "first": msgs[0]["sender"] + ": " + msgs[0].get("message", ""),
+#                     "last": msgs[-1]["sender"] + ": " + msgs[-1].get("message", "")
+#                 }
+
+#             chat_history.append(history_item)
+
+#         # Group stats if requested
+#         if group_by in ["day", "week"]:
+#             grouped = defaultdict(list)
+#             for item in chat_history:
+#                 key_date = datetime.fromisoformat(item["created_at"])
+#                 key = key_date.strftime("%Y-%m-%d") if group_by == "day" else key_date.strftime("%Y-W%U")
+#                 grouped[key].append(item)
+
+#             grouped_stats = []
+#             for key, items in grouped.items():
+#                 valid_times = [i["first_response_time_seconds"] for i in items if i["first_response_time_seconds"] is not None]
+#                 avg_response = sum(valid_times) / len(valid_times) if valid_times else None
+#                 grouped_stats.append({
+#                     "period": key,
+#                     "chats": len(items),
+#                     "average_response_time_seconds": avg_response
+#                 })
+
+#             return Response({
+#                 "agent_name": agent_name,
+#                 "group_by": group_by,
+#                 "summary": grouped_stats
+#             }, status=200)
+
+#         return Response({
+#             "agent_name": agent_name,
+#             "total_chats_handled": len(chat_history),
+#             "active_chat_sessions": sum(1 for r in rooms if r.get('closed_at') is None),
+#             "average_response_time_seconds": (
+#                 sum(response_times) / len(response_times) if response_times else None
+#             ),
+#             "chat_history": chat_history,
+#         }, status=200)
 
 class ExportChatHistoryAPIView(APIView):
     permission_classes = [IsSuperAdmin]  # Only admins or superadmins can access this view

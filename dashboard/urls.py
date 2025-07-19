@@ -43,6 +43,9 @@ urlpatterns = [
     
     ## Widget Conversation URLs
     path('conversations/widget/<str:widget_id>/', views.widget_conversations, name='widget_conversations'),
+    path('shortcuts/widget/<str:widget_id>/', views.get_shortcuts_by_widget, name='get_shortcut_by_widgetid'),
+    path('tags/widget/<str:widget_id>/', views.get_tags_by_widget, name='get_tags_by_widgetid'),
+    path('triggers/widget/<str:widget_id>/', views.get_triggers_by_widget, name='get_triggers_by_widgetid'),
 
     # Contact URLs
     path('contacts/', ContactListCreateView.as_view(), name='contact-list-create'),

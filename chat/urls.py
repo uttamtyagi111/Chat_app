@@ -44,6 +44,7 @@ urlpatterns = [
    ## Public API Endpoints
     path("widget/settings/<str:widget_id>/", views.public_widget_settings, name='public_widget_settings'),
     
+    path('user-chat/history/', views.chat_history, name='chat_history'),
 
 
      path('test-ip-geolocation/', views.test_ip_geolocation, name='test_ip_geolocation'),

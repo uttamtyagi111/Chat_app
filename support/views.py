@@ -528,7 +528,7 @@ def add_tag(request):
         room_id = data.get('room_id', '').strip()
         # trigger_id = data.get('trigger_id', '').strip()
 
-        if not name or not widget_id:
+        if not  widget_id:
             return JsonResponse({'error': "'name' and 'widget_id' are required"}, status=400)
 
         user = request.jwt_user
@@ -624,8 +624,8 @@ def edit_tag(request, tag_id):
         room_id = data.get('room_id')
         # trigger_id = data.get('trigger_id')
 
-        if not name:
-            return JsonResponse({'error': "'name' is required"}, status=400)
+        # if not name:
+        #     return JsonResponse({'error': "'name' is required"}, status=400)
 
         tag_collection = get_tag_collection()
         existing_tag = tag_collection.find_one({'tag_id': tag_id})
@@ -652,7 +652,7 @@ def edit_tag(request, tag_id):
 
             if widget_id not in assigned_widgets:
                 return JsonResponse({'error': 'Unauthorized: Cannot edit tags from this widget'}, status=403)
-
+ 
         # ✅ Unique name per widget
         if tag_collection.find_one({'name': name, 'widget_id': widget_id, 'tag_id': {'$ne': tag_id}}):
             return JsonResponse({'error': f"Tag '{name}' already exists for this widget"}, status=409)
@@ -714,7 +714,7 @@ def delete_tag(request, tag_id):
     tag_collection = get_tag_collection()
     shortcut_collection = get_shortcut_collection()
     room_collection = get_room_collection()
-    trigger_collection = get_trigger_collection()
+    # trigger_collection = get_trigger_collection()
 
     tag = tag_collection.find_one({'tag_id': tag_id})
     if not tag:

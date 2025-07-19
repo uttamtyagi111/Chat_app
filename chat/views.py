@@ -817,6 +817,14 @@ for testing with frontend template
 #     })
     
 #     return render(request, 'chat/user_chat.html', {'room_id': room_id})
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+import requests
+from datetime import datetime
+from user_agents import parse
 
 class UserChatAPIView(APIView):
     @swagger_auto_schema(
@@ -883,7 +891,7 @@ class UserChatAPIView(APIView):
             'timezone': '',
             'flag': None
         }
-        
+
     def post(self, request):
         widget_id = request.data.get("widget_id")
         client_ip = self.get_client_ip(request)
@@ -896,13 +904,12 @@ class UserChatAPIView(APIView):
 
         print(f"[UserChatAPIView] Received POST - Widget ID: {widget_id}, IP: {client_ip}")
 
-        # Parse user agent
         user_agent = parse(user_agent_string)
         os_info = f"{user_agent.os.family} {user_agent.os.version_string}" if user_agent.os.family else "Unknown OS"
         browser_info = f"{user_agent.browser.family} {user_agent.browser.version_string}" if user_agent.browser.family else "Unknown Browser"
 
-        # Fetch IP geolocation
-        ip_info = self.get_ip_geolocation(client_ip)
+        ip_info = self.get_ip_geolocation(client_ip) or {}
+        flag_info = ip_info.get('flag') or {}
 
         widget_collection = get_widget_collection()
         room_collection = get_room_collection()
@@ -912,14 +919,12 @@ class UserChatAPIView(APIView):
         if not widget:
             return Response({"error": "Widget not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Check for existing room
         room = room_collection.find_one({"ip": client_ip, "widget_id": widget_id})
         if room:
             room_id = room.get("room_id")
             contact_id = room.get("contact_id")
             print(f"[UserChatAPIView] Reusing existing room ID: {room_id}")
         else:
-            # Create new room
             room_id = generate_room_id()
             while room_collection.find_one({'room_id': room_id}):
                 room_id = generate_room_id()
@@ -944,8 +949,8 @@ class UserChatAPIView(APIView):
                     'region': ip_info.get('region', ''),
                     'country_code': ip_info.get('country_code', ''),
                     'timezone': ip_info.get('timezone', ''),
-                    'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
-                    'flag_url': ip_info.get('flag', {}).get('url', ''),
+                    'flag_emoji': flag_info.get('emoji', ''),
+                    'flag_url': flag_info.get('url', ''),
                     'os': os_info,
                     'browser': browser_info,
                 }
@@ -967,12 +972,168 @@ class UserChatAPIView(APIView):
                 "city": ip_info.get('city', 'Unknown'),
                 "region": ip_info.get('region', ''),
                 "timezone": ip_info.get('timezone', ''),
-                "flag": ip_info.get('flag', {}),
+                "flag": flag_info,
                 "os": os_info,
                 "browser": browser_info,
             }
         }
         return Response(response_data, status=status.HTTP_200_OK)
+
+# class UserChatAPIView(APIView):
+#     @swagger_auto_schema(
+#         operation_description="Initialize chat: create/reuse room, return widget settings, room ID, and user location",
+#         request_body=openapi.Schema(
+#             type=openapi.TYPE_OBJECT,
+#             properties={
+#                 'widget_id': openapi.Schema(type=openapi.TYPE_STRING, description='Widget ID to associate the room with'),
+#                 'ip': openapi.Schema(type=openapi.TYPE_STRING, description='IP address of the user (sent from frontend)'),
+#                 'user_agent': openapi.Schema(type=openapi.TYPE_STRING, description='User agent string of the browser'),
+#             },
+#             required=['widget_id', 'ip', 'user_agent']
+#         ),
+#         responses={
+#             200: openapi.Response('Room initialized successfully'),
+#             400: openapi.Response('Bad Request'),
+#             404: openapi.Response('Widget Not Found')
+#         }
+#     )
+#     def get_client_ip(self, request):
+#         return request.data.get("ip")
+
+#     def get_ip_geolocation(self, ip_address):
+#         if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1']:
+#             return {
+#                 'country': 'Local',
+#                 'city': 'Local',
+#                 'region': 'Local',
+#                 'country_code': '',
+#                 'timezone': '',
+#                 'flag': None
+#             }
+
+#         try:
+#             api_url = f'https://ipwhois.pro/{ip_address}?key=8HaX4qcer2Ml9Hfc'
+#             response = requests.get(api_url, timeout=10)
+#             if response.status_code == 200:
+#                 data = response.json()
+#                 if data.get('success', True):
+#                     country_code = data.get('country_code', '').upper()
+#                     flag = {
+#                         'emoji': ''.join(chr(ord(c) + 127397) for c in country_code),
+#                         'url': f"https://flagcdn.com/32x24/{country_code.lower()}.png",
+#                         'country_code': country_code
+#                     } if country_code and len(country_code) == 2 else None
+
+#                     return {
+#                         'country': data.get('country', 'Unknown'),
+#                         'city': data.get('city', 'Unknown'),
+#                         'region': data.get('region', ''),
+#                         'country_code': country_code,
+#                         'timezone': data.get('timezone', ''),
+#                         'flag': flag
+#                     }
+
+#         except Exception as e:
+#             print(f"[Geolocation Error] {str(e)}")
+
+#         return {
+#             'country': 'Unknown',
+#             'city': 'Unknown',
+#             'region': '',
+#             'country_code': '',
+#             'timezone': '',
+#             'flag': None
+#         }
+        
+#     def post(self, request):
+#         widget_id = request.data.get("widget_id")
+#         client_ip = self.get_client_ip(request)
+#         user_agent_string = request.data.get("user_agent", "")
+
+#         if not widget_id:
+#             return Response({"error": "Widget ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+#         if not client_ip:
+#             return Response({"error": "IP address is required from frontend"}, status=status.HTTP_400_BAD_REQUEST)
+
+#         print(f"[UserChatAPIView] Received POST - Widget ID: {widget_id}, IP: {client_ip}")
+
+#         # Parse user agent
+#         user_agent = parse(user_agent_string)
+#         os_info = f"{user_agent.os.family} {user_agent.os.version_string}" if user_agent.os.family else "Unknown OS"
+#         browser_info = f"{user_agent.browser.family} {user_agent.browser.version_string}" if user_agent.browser.family else "Unknown Browser"
+
+#         # Fetch IP geolocation
+#         ip_info = self.get_ip_geolocation(client_ip)
+
+#         widget_collection = get_widget_collection()
+#         room_collection = get_room_collection()
+#         contact_collection = get_contact_collection()
+
+#         widget = widget_collection.find_one({"widget_id": widget_id})
+#         if not widget:
+#             return Response({"error": "Widget not found"}, status=status.HTTP_404_NOT_FOUND)
+
+#         # Check for existing room
+#         room = room_collection.find_one({"ip": client_ip, "widget_id": widget_id})
+#         if room:
+#             room_id = room.get("room_id")
+#             contact_id = room.get("contact_id")
+#             print(f"[UserChatAPIView] Reusing existing room ID: {room_id}")
+#         else:
+#             # Create new room
+#             room_id = generate_room_id()
+#             while room_collection.find_one({'room_id': room_id}):
+#                 room_id = generate_room_id()
+
+#             contact_id = generate_contact_id()
+#             while contact_collection.find_one({'contact_id': contact_id}):
+#                 contact_id = generate_contact_id()
+
+#             room_document = {
+#                 'room_id': room_id,
+#                 'widget_id': widget_id,
+#                 'ip': client_ip,
+#                 'is_active': True,
+#                 'contact_id': contact_id,
+#                 'created_at': datetime.utcnow(),
+#                 'updated_at': datetime.utcnow(),
+#                 'assigned_agent': None,
+#                 'user_location': {
+#                     'user_ip': client_ip,
+#                     'country': ip_info.get('country', 'Unknown'),
+#                     'city': ip_info.get('city', 'Unknown'),
+#                     'region': ip_info.get('region', ''),
+#                     'country_code': ip_info.get('country_code', ''),
+#                     'timezone': ip_info.get('timezone', ''),
+#                     'flag_emoji': ip_info.get('flag', {}).get('emoji', ''),
+#                     'flag_url': ip_info.get('flag', {}).get('url', ''),
+#                     'os': os_info,
+#                     'browser': browser_info,
+#                 }
+#             }
+#             insert_with_timestamps(room_collection, room_document)
+#             print(f"[UserChatAPIView] New room created with ID: {room_id}")
+
+#         response_data = {
+#             "room_id": room_id,
+#             "widget": {
+#                 "widget_id": widget["widget_id"],
+#                 "widget_type": widget.get("widget_type"),
+#                 "name": widget.get("name"),
+#                 "settings": widget.get("settings", {}),
+#             },
+#             "user_location": {
+#                 "ip": client_ip,
+#                 "country": ip_info.get('country', 'Unknown'),
+#                 "city": ip_info.get('city', 'Unknown'),
+#                 "region": ip_info.get('region', ''),
+#                 "timezone": ip_info.get('timezone', ''),
+#                 "flag": ip_info.get('flag', {}),
+#                 "os": os_info,
+#                 "browser": browser_info,
+#             }
+#         }
+#         return Response(response_data, status=status.HTTP_200_OK)
 
 
   # Install this with pip install pyyaml ua-parser user-agents
@@ -2411,3 +2572,126 @@ logger = logging.getLogger(__name__)
 #         except Exception as e:
 #             logger.error(f"Error fetching agent list: {str(e)}")
 #             return Response({"error": "Internal server error"}, status=500)
+
+from django.http import JsonResponse
+from django.views.decorators.http import require_http_methods
+from django.views.decorators.csrf import csrf_exempt
+from django.core.cache import cache
+from django.conf import settings
+import json
+from functools import wraps
+from wish_bot.db import get_room_collection, get_chat_collection
+
+def rate_limit(max_requests=5, period=60):
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapped_view(request, *args, **kwargs):
+            if not settings.DEBUG:  # Don't rate limit in development
+                ip = request.META.get('REMOTE_ADDR')
+                cache_key = f'rate_limit:{ip}:{request.path}'
+                count = cache.get(cache_key, 0)
+                
+                if count >= max_requests:
+                    return JsonResponse({
+                        'error': 'Too many requests',
+                        'retry_after': period
+                    }, status=429)
+                
+                cache.set(cache_key, count + 1, period)
+            
+            return view_func(request, *args, **kwargs)
+        return wrapped_view
+    return decorator
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@rate_limit(max_requests=10, period=60)  # 10 requests per minute
+def chat_history(request):
+    try:
+        # Verify Content-Type
+        if request.content_type != 'application/json':
+            return JsonResponse({
+                'error': 'Content-Type must be application/json'
+            }, status=415)
+        
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({
+                'error': 'Invalid JSON payload'
+            }, status=400)
+        
+        # Validate required fields
+        required_fields = ['room_id', 'widget_id']
+        if not all(field in data for field in required_fields):
+            return JsonResponse({
+                'error': f'Missing required fields: {", ".join(required_fields)}'
+            }, status=400)
+        
+        room_id = data['room_id']
+        widget_id = data['widget_id']
+        limit = int(data.get('limit', 0))  # Default to 0 (no limit)
+        
+        # Validate limit
+        if limit < 0:
+            return JsonResponse({
+                'error': 'Limit must be a positive integer'
+            }, status=400)
+        
+        # Verify room belongs to this widget
+        room_collection = get_room_collection()
+        room = room_collection.find_one({
+            'room_id': room_id,
+            'widget_id': widget_id
+        })
+        
+        if not room:
+            return JsonResponse({
+                'error': 'Room not found or access denied'
+            }, status=404)
+        
+        # Get messages
+        chat_collection = get_chat_collection()
+        query = {'room_id': room_id}
+        
+        # Get total count for reference
+        total_count = chat_collection.count_documents(query)
+        
+        # Get messages sorted by timestamp (newest first)
+        cursor = chat_collection.find(
+            query,
+            {
+                '_id': 0,
+                'room_id': 0,
+                'form_data': 0  # Exclude sensitive form data
+            }
+        ).sort('timestamp', -1)  # Most recent first
+        
+        # Apply limit if specified
+        if limit > 0:
+            cursor = cursor.limit(limit)
+        
+        messages = list(cursor)
+        
+        # Convert ObjectId and datetime to strings
+        for message in messages:
+            if 'timestamp' in message:
+                message['timestamp'] = message['timestamp'].isoformat()
+        
+        # Reverse to get chronological order (oldest first)
+        messages.reverse()
+        
+        return JsonResponse({
+            'status': 'success',
+            'room_id': room_id,
+            'total_messages': total_count,
+            'returned_messages': len(messages),
+            'limit_applied': limit if limit > 0 else None,
+            'messages': messages
+        }, status=200)
+        
+    except Exception as e:
+        return JsonResponse({
+            'error': 'Internal server error',
+            'details': str(e)
+        }, status=500)
