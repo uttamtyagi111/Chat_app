@@ -1567,12 +1567,12 @@ class AgentChatAPIView(APIView):
 
     @extend_schema(
         operation_id="assignAgentToRoom",
-        summary="Assign an agent to a room (agent assigns self or superadmin assigns another agent)",
+        summary="Assign an agent or superadmin to a room",
         request={
             "application/json": {
                 "type": "object",
                 "properties": {
-                    "agent_id": {"type": "string", "description": "Admin ID of the agent to assign (required for superadmin)"},
+                    "agent_id": {"type": "string", "description": "Admin ID of the agent to assign (optional for superadmin to assign self)"},
                 },
                 "example": {
                     "agent_id": "admin_123456"
@@ -1606,31 +1606,28 @@ class AgentChatAPIView(APIView):
 
             room_widget_id = room.get("widget_id")
             agent_doc = None
-            admin_id = None
+            agent_id_to_assign = None
 
-            # AGENT: can assign only themselves
             if role == "agent":
-                admin_id = requester_id
-                agent_doc = admin_collection.find_one({"admin_id": admin_id, "role": "agent"})
+                agent_id_to_assign = requester_id
+                agent_doc = admin_collection.find_one({"admin_id": agent_id_to_assign, "role": "agent"})
                 if not agent_doc:
                     return Response({"error": "Agent not found"}, status=status.HTTP_404_NOT_FOUND)
 
                 if room_widget_id not in agent_doc.get("assigned_widgets", []):
                     return Response({"error": "You are not assigned to this widget"}, status=status.HTTP_403_FORBIDDEN)
 
-            # SUPERADMIN: can assign any agent (admin_id must be given)
             elif role == "superadmin":
-                admin_id = request.data.get("agent_id")
-                if not admin_id:
-                    return Response({"error": "agent_id is required for superadmin"}, status=status.HTTP_400_BAD_REQUEST)
-
-                agent_doc = admin_collection.find_one({"admin_id": admin_id, "role": "agent"})
+                agent_id_to_assign = request.data.get("admin_id") or requester_id  # Use self if not provided
+                agent_doc = admin_collection.find_one({"admin_id": agent_id_to_assign})
                 if not agent_doc:
                     return Response({"error": "Agent not found"}, status=status.HTTP_404_NOT_FOUND)
 
-                if room_widget_id not in agent_doc.get("assigned_widgets", []):
-                    return Response({"error": "Agent is not assigned to this widget"}, status=status.HTTP_403_FORBIDDEN)
-
+                if agent_doc.get("role") == "agent" or agent_id_to_assign == requester_id:
+                    if room_widget_id not in agent_doc.get("assigned_widgets", []):
+                        return Response({"error": "Agent is not assigned to this widget"}, status=status.HTTP_403_FORBIDDEN)
+                else:
+                    return Response({"error": "Only agents or the superadmin themselves can be assigned"}, status=status.HTTP_403_FORBIDDEN)
             else:
                 return Response({"error": "Unauthorized role"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -1641,7 +1638,7 @@ class AgentChatAPIView(APIView):
                 {"room_id": room_id},
                 {
                     "$set": {
-                        "assigned_agent": admin_id,
+                        "assigned_agent": agent_id_to_assign,
                         "assigned_agent_name": agent_name
                     }
                 }
@@ -1650,7 +1647,7 @@ class AgentChatAPIView(APIView):
             return Response({
                 "message": f"Agent '{agent_name}' assigned to room '{room_id}'",
                 "room_id": room_id,
-                "assigned_agent": admin_id,
+                "assigned_agent": agent_id_to_assign,
                 "assigned_agent_name": agent_name
             }, status=status.HTTP_200_OK)
 

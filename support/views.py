@@ -520,15 +520,13 @@ def add_tag(request):
     try:
         data = json.loads(request.body.decode('utf-8'))
 
-        name = data.get('name', '').strip()
-        color = data.get('color', '#cccccc').strip()
-        widget_id = data.get('widget_id', '').strip()
+        name = data.get('name')
+        color = data.get('color')
+        widget_id = data.get('widget_id')
+        shortcut_id = data.get('shortcut_id') or []  # now array
+        room_id = data.get('room_id') or []          # now array
 
-        shortcut_id = data.get('shortcut_id', '').strip()
-        room_id = data.get('room_id', '').strip()
-        # trigger_id = data.get('trigger_id', '').strip()
-
-        if not  widget_id:
+        if not name or not widget_id:
             return JsonResponse({'error': "'name' and 'widget_id' are required"}, status=400)
 
         user = request.jwt_user
@@ -548,22 +546,22 @@ def add_tag(request):
                 return JsonResponse({'error': 'Unauthorized to add tags to this widget'}, status=403)
 
         # ✅ Validate shortcut_id (if provided)
-        if shortcut_id:
-            shortcut = get_shortcut_collection().find_one({'shortcut_id': shortcut_id})
+        if isinstance(shortcut_id, str):
+            shortcut_id = [shortcut_id]
+
+        for sid in shortcut_id:
+            shortcut = get_shortcut_collection().find_one({'shortcut_id': sid})
             if not shortcut or shortcut.get('widget_id') != widget_id:
-                return JsonResponse({'error': 'Invalid shortcut_id or widget mismatch'}, status=403)
+                return JsonResponse({'error': f'Invalid shortcut_id: {sid} or widget mismatch'}, status=403)
 
         # ✅ Validate room_id (if provided)
-        if room_id:
-            room = get_room_collection().find_one({'room_id': room_id})
-            if not room or room.get('widget_id') != widget_id:
-                return JsonResponse({'error': 'Invalid room_id or widget mismatch'}, status=403)
+        if isinstance(room_id, str):
+            room_id = [room_id]
 
-        # # ✅ Validate trigger_id (if provided)
-        # if trigger_id:
-        #     trigger = get_trigger_collection().find_one({'trigger_id': trigger_id})
-        #     if not trigger or trigger.get('widget_id') != widget_id:
-        #         return JsonResponse({'error': 'Invalid trigger_id or widget mismatch'}, status=403)
+        for rid in room_id:
+            room = get_room_collection().find_one({'room_id': rid})
+            if not room or room.get('widget_id') != widget_id:
+                return JsonResponse({'error': f'Invalid room_id: {rid} or widget mismatch'}, status=403)
 
         # ✅ Uniqueness check
         tag_collection = get_tag_collection()
@@ -578,15 +576,13 @@ def add_tag(request):
             'name': name,
             'color': color,
             'widget_id': widget_id,
-            'shortcut_id': shortcut_id or None,
-            'room_id': room_id or None,
-            # 'trigger_id': trigger_id or None,
+            'shortcut_id': shortcut_id,
+            'room_id': room_id,
             'created_at': created_at
         }
 
         tag_collection.insert_one(tag)
 
-        # ✅ Return clean, serializable response
         return JsonResponse({
             'success': True,
             'message': 'Tag added successfully',
@@ -595,9 +591,8 @@ def add_tag(request):
                 'name': name,
                 'color': color,
                 'widget_id': widget_id,
-                'shortcut_id': shortcut_id or None,
-                'room_id': room_id or None,
-                # 'trigger_id': trigger_id or None,
+                'shortcut_id': shortcut_id,
+                'room_id': room_id,
                 'created_at': str(created_at)
             }
         }, status=201)
@@ -618,14 +613,10 @@ def edit_tag(request, tag_id):
     try:
         data = json.loads(request.body.decode('utf-8'))
 
-        name = data.get('name', '').strip()
-        color = data.get('color', '#cccccc').strip()
+        name = data.get('name')
+        color = data.get('color')
         shortcut_id = data.get('shortcut_id')
         room_id = data.get('room_id')
-        # trigger_id = data.get('trigger_id')
-
-        # if not name:
-        #     return JsonResponse({'error': "'name' is required"}, status=400)
 
         tag_collection = get_tag_collection()
         existing_tag = tag_collection.find_one({'tag_id': tag_id})
@@ -640,7 +631,6 @@ def edit_tag(request, tag_id):
         role = user.get('role')
         admin_id = user.get('admin_id')
 
-        # 🔐 Agent access check
         if role == 'agent':
             admin_doc = get_admin_collection().find_one({'admin_id': admin_id})
             if not admin_doc:
@@ -652,12 +642,10 @@ def edit_tag(request, tag_id):
 
             if widget_id not in assigned_widgets:
                 return JsonResponse({'error': 'Unauthorized: Cannot edit tags from this widget'}, status=403)
- 
-        # ✅ Unique name per widget
+
         if tag_collection.find_one({'name': name, 'widget_id': widget_id, 'tag_id': {'$ne': tag_id}}):
             return JsonResponse({'error': f"Tag '{name}' already exists for this widget"}, status=409)
 
-        # ✅ Reference validation
         if shortcut_id:
             shortcut = get_shortcut_collection().find_one({'shortcut_id': shortcut_id})
             if not shortcut or shortcut.get('widget_id') != widget_id:
@@ -668,19 +656,12 @@ def edit_tag(request, tag_id):
             if not room or room.get('widget_id') != widget_id:
                 return JsonResponse({'error': 'Invalid room_id or widget mismatch'}, status=403)
 
-        # if trigger_id:
-        #     trigger = get_trigger_collection().find_one({'trigger_id': trigger_id})
-        #     if not trigger or trigger.get('widget_id') != widget_id:
-        #         return JsonResponse({'error': 'Invalid trigger_id or widget mismatch'}, status=403)
-
-        # ✅ Update
         update_fields = {
             'name': name,
             'color': color,
             'updated_at': timezone.now(),
             'shortcut_id': shortcut_id,
             'room_id': room_id,
-            # 'trigger_id': trigger_id
         }
         update_fields = {k: v for k, v in update_fields.items() if v is not None}
 
@@ -690,7 +671,7 @@ def edit_tag(request, tag_id):
         updated_tag['_id'] = str(updated_tag['_id'])
         updated_tag['created_at'] = str(updated_tag.get('created_at', ''))
         updated_tag['updated_at'] = str(updated_tag.get('updated_at', ''))
-        updated_tag['widget_id'] = widget_id  # ensure visible in response
+        updated_tag['widget_id'] = widget_id
 
         return JsonResponse({
             'success': True,
@@ -702,7 +683,6 @@ def edit_tag(request, tag_id):
         return JsonResponse({'error': 'Invalid JSON format'}, status=400)
     except Exception as e:
         return JsonResponse({'error': f'Unexpected server error: {str(e)}'}, status=500)
-
 
 
 @jwt_required

@@ -46,8 +46,7 @@ urlpatterns = [
     
     path('user-chat/history/', views.chat_history, name='chat_history'),
 
-
-     path('test-ip-geolocation/', views.test_ip_geolocation, name='test_ip_geolocation'),
+    path('test-ip-geolocation/', views.test_ip_geolocation, name='test_ip_geolocation'),
 
 ]
 if settings.DEBUG:
