@@ -586,7 +586,6 @@
 #             print(f"[ERROR] Updating room status: {e}")
 
 
-
 import json
 import uuid
 from datetime import datetime, timedelta
@@ -613,8 +612,11 @@ def get_notifier():
 
 async def notify_event(event_type, payload):
     channel_layer = get_notifier()
-    # Send room list updates only to agents
-    group = 'notifications_agent' if event_type == 'room_list_update' else 'notifications'
+    # Send different types of notifications to appropriate groups
+    if event_type in ['room_list_update', 'new_message_agent', 'unread_update', 'agent_status_change']:
+        group = 'notifications_agent'
+    else:
+        group = 'notifications'
     
     await channel_layer.group_send(
         group,
@@ -631,6 +633,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         self.room_group_name = f'chat_{self.room_name}'
         self.is_agent = 'agent=true' in self.scope.get('query_string', b'').decode()
         self.user = f'user_{str(uuid.uuid4())}' if not self.is_agent else 'agent'
+        self.agent_id = self.scope.get('url_route', {}).get('kwargs', {}).get('agent_id') if self.is_agent else None
 
         print(f"[DEBUG] Connection attempt - Room: {self.room_name}, Is Agent: {self.is_agent}, User: {self.user}")
 
@@ -648,24 +651,26 @@ class ChatConsumer(AsyncWebsocketConsumer):
         
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         
-        # Subscribe agent to room list notifications
+        # Subscribe agent to notifications and set online status
         if self.is_agent:
             await self.channel_layer.group_add('notifications_agent', self.channel_name)
+            await self.set_agent_online_status(True)
         
         await self.accept()
         print(f"[DEBUG] WebSocket connection accepted for room: {self.room_name}")
 
         if not self.is_agent:
-            await notify_event('new_room', {'room_id': self.room_name})
+            # Notify agents about new room/user connection
+            await notify_event('new_room', {
+                'room_id': self.room_name,
+                'timestamp': datetime.utcnow().isoformat()
+            })
+            
             self.widget_id = await sync_to_async(self.get_widget_id_from_room)()
             print(f"[DEBUG] Widget ID: {self.widget_id}")
             
             self.triggers = await self.fetch_triggers_for_widget(self.widget_id)
             print(f"[DEBUG] Fetched {len(self.triggers) if self.triggers else 0} triggers")
-            
-            if self.triggers:
-                for i, trigger in enumerate(self.triggers):
-                    print(f"[DEBUG] Trigger {i}: {trigger.get('message', '')[:50]}...")
             
             redis_key = f"predefined:{self.room_name}:{self.user}"
             redis_client.set(redis_key, 0)
@@ -675,6 +680,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
             await self.send_trigger_message(0)
         else:
             await self.send_chat_history()
+            # Send initial room list to newly connected agent
+            await self.send_room_list()
 
     def validate_room(self):
         try:
@@ -703,6 +710,25 @@ class ChatConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             print(f"[ERROR] Error getting widget ID: {e}")
             return None
+
+    async def set_agent_online_status(self, is_online):
+        """Set agent online/offline status in Redis"""
+        try:
+            if self.is_agent and self.agent_id:
+                status_key = f"agent_online:{self.agent_id}"
+                if is_online:
+                    redis_client.setex(status_key, 3600, datetime.utcnow().isoformat())  # 1 hour expiry
+                else:
+                    redis_client.delete(status_key)
+                
+                # Notify about agent status change
+                await notify_event('agent_status_change', {
+                    'agent_id': self.agent_id,
+                    'status': 'online' if is_online else 'offline',
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+        except Exception as e:
+            print(f"[ERROR] Setting agent online status: {e}")
 
     async def fetch_triggers_for_widget(self, widget_id):
         try:
@@ -785,9 +811,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
     async def disconnect(self, close_code):
         print(f"[DEBUG] Disconnecting with close code: {close_code}")
         if hasattr(self, 'room_name'):
-            # Only set room inactive status if this is a USER disconnection, not an agent
-            # if not self.is_agent:
-            #     await self.set_room_active_status(self.room_name, False)
+            # Set agent offline status
+            if self.is_agent:
+                await self.set_agent_online_status(False)
             
             # Clean up Redis keys regardless of user type
             redis_client.delete(f'typing:{self.room_name}:{self.user}')
@@ -796,7 +822,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             
             await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
             
-            # Unsubscribe agent from room list notifications
+            # Unsubscribe agent from notifications
             if self.is_agent:
                 await self.channel_layer.group_discard('notifications_agent', self.channel_name)
 
@@ -809,6 +835,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # Handle agent room list request
             if data.get('action') == 'get_room_list' and self.is_agent:
                 await self.send_room_list()
+                return
+
+            # Handle agent heartbeat for online status
+            if data.get('action') == 'heartbeat' and self.is_agent:
+                await self.set_agent_online_status(True)
+                return
+
+            # Handle mark all messages as read for a room
+            if data.get('action') == 'mark_room_read' and self.is_agent:
+                room_id = data.get('room_id', self.room_name)
+                await self.mark_room_messages_read(room_id)
                 return
 
             if not self.is_agent and (data.get('message') or data.get('file_url') or data.get('form_data')):
@@ -848,6 +885,33 @@ class ChatConsumer(AsyncWebsocketConsumer):
             import traceback
             traceback.print_exc()
 
+    async def mark_room_messages_read(self, room_id):
+        """Mark all messages in a room as read by agent"""
+        try:
+            collection = await sync_to_async(get_chat_collection)()
+            
+            # Update all unread messages in the room
+            await sync_to_async(collection.update_many)(
+                {'room_id': room_id, 'seen': False, 'sender': {'$ne': 'agent'}},
+                {'$set': {'seen': True, 'seen_at': datetime.utcnow()}}
+            )
+            
+            # Reset unread count
+            unread_key = f'unread:{room_id}'
+            redis_client.delete(unread_key)
+            
+            # Notify about unread count update
+            await notify_event('unread_update', {
+                'room_id': room_id,
+                'unread_count': 0,
+                'timestamp': datetime.utcnow().isoformat()
+            })
+            
+            print(f"[DEBUG] Marked all messages as read for room: {room_id}")
+            
+        except Exception as e:
+            print(f"[ERROR] Error marking room messages as read: {e}")
+
     async def handle_typing(self, data):
         """Handle typing indicator from users"""
         typing = data.get('typing', False)
@@ -882,15 +946,28 @@ class ChatConsumer(AsyncWebsocketConsumer):
         
         try:
             # Update the message as seen in database
-            await sync_to_async(collection.update_one)(
+            result = await sync_to_async(collection.update_one)(
                 {'message_id': message_id, 'room_id': self.room_name},
                 {'$set': {'seen': True, 'seen_at': datetime.utcnow()}}
             )
             
-            # Reset unread count when agent sees messages
-            if self.is_agent:
+            # If agent saw the message, update unread count
+            if self.is_agent and result.modified_count > 0:
                 unread_key = f'unread:{self.room_name}'
-                redis_client.delete(unread_key)
+                current_unread = int(redis_client.get(unread_key) or 0)
+                if current_unread > 0:
+                    new_unread = max(0, current_unread - 1)
+                    if new_unread == 0:
+                        redis_client.delete(unread_key)
+                    else:
+                        redis_client.set(unread_key, new_unread)
+                    
+                    # Notify about unread count update
+                    await notify_event('unread_update', {
+                        'room_id': self.room_name,
+                        'unread_count': new_unread,
+                        'timestamp': datetime.utcnow().isoformat()
+                    })
             
             # Broadcast seen status to other users in the room
             await self.channel_layer.group_send(
@@ -924,7 +1001,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             room = await sync_to_async(lambda: room_collection.find_one({'room_id': self.room_name}))()
             contact_id = room.get('contact_id') if room and room.get('contact_id') else generate_contact_id()
 
-            
             contact_doc = {
                 'contact_id': contact_id,
                 'room_id': self.room_name,
@@ -957,7 +1033,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # Increment unread count for non-agent messages
             if not self.is_agent:
                 unread_key = f'unread:{self.room_name}'
-                redis_client.incr(unread_key)
+                new_unread_count = redis_client.incr(unread_key)
+                
+                # Notify agents about new unread message
+                await notify_event('unread_update', {
+                    'room_id': self.room_name,
+                    'unread_count': new_unread_count,
+                    'timestamp': timestamp.isoformat()
+                })
             
             # Broadcast the form submission
             await self.channel_layer.group_send(
@@ -978,10 +1061,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # Notify about new contact and trigger room list update
             await notify_event('new_contact', {
                 'room_id': self.room_name,
-                'contact_info': contact_doc
+                'contact_info': contact_doc,
+                'timestamp': timestamp.isoformat()
             })
             
-            await notify_event('room_list_update', {'room_id': self.room_name})
+            await notify_event('room_list_update', {
+                'room_id': self.room_name,
+                'action': 'contact_added',
+                'timestamp': timestamp.isoformat()
+            })
             
         except Exception as e:
             print(f"[ERROR] Handling form data: {e}")
@@ -994,16 +1082,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             message_id = data.get('message_id') or generate_room_id()
             timestamp = datetime.utcnow()
-            # contact_id = data.get('contact_id') or generate_contact_id()
             contact_id = data.get('contact_id')
+            
             if not contact_id:
                 # Try to get from room data
                 room_collection = await sync_to_async(get_room_collection)()
                 room = await sync_to_async(lambda: room_collection.find_one({'room_id': self.room_name}))()
                 contact_id = room.get('contact_id') if room else generate_contact_id()
+            
             if not contact_id:
                 print("[ERROR] No contact_id provided, cannot handle new message")
                 return
+                
             sender = data.get('sender', self.user)
             message = data.get('message', '')
             file_url = data.get('file_url', '')
@@ -1017,13 +1107,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 room = await sync_to_async(lambda: room_collection.find_one({'room_id': self.room_name}))()
                 assigned_agent_id = room.get('assigned_agent') if room else None
 
-            if assigned_agent_id:
-                admin_collection = await sync_to_async(get_admin_collection)()
-                agent_doc = await sync_to_async(lambda: admin_collection.find_one({'admin_id': assigned_agent_id}))()
-                agent_name = agent_doc.get('name') if agent_doc else 'Agent'
-                sender = agent_name
-            else:
-                sender = 'Agent'
+                if assigned_agent_id:
+                    admin_collection = await sync_to_async(get_admin_collection)()
+                    agent_doc = await sync_to_async(lambda: admin_collection.find_one({'admin_id': assigned_agent_id}))()
+                    agent_name = agent_doc.get('name') if agent_doc else 'Agent'
+                    display_sender_name = agent_name
+                else:
+                    display_sender_name = 'Agent'
 
             print(f"[DEBUG] Handling new message from {display_sender_name}: {message[:50]}...")
 
@@ -1042,11 +1132,32 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
             await sync_to_async(insert_with_timestamps)(collection, doc)
 
-            # Increment unread count for non-agent messages
+            # Handle unread count and notifications for non-agent messages
             if not self.is_agent:
                 unread_key = f'unread:{self.room_name}'
-                redis_client.incr(unread_key)
+                new_unread_count = redis_client.incr(unread_key)
+                
+                # Notify agents about new message with enhanced payload
+                await notify_event('new_message_agent', {
+                    'room_id': self.room_name,
+                    'message': message,
+                    'sender': display_sender_name,
+                    'message_id': message_id,
+                    'contact_id': contact_id,
+                    'unread_count': new_unread_count,
+                    'timestamp': timestamp.isoformat(),
+                    'file_url': file_url,
+                    'file_name': file_name
+                })
+                
+                # Also notify about unread count update
+                await notify_event('unread_update', {
+                    'room_id': self.room_name,
+                    'unread_count': new_unread_count,
+                    'timestamp': timestamp.isoformat()
+                })
 
+            # Broadcast message to room participants
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
@@ -1061,11 +1172,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }
             )
 
+            # Notify general event (keep existing for compatibility)
             await notify_event('new_message', {**doc, 'timestamp': timestamp.isoformat()})
 
             # Trigger room list update for agents
             if not self.is_agent:
-                await notify_event('room_list_update', {'room_id': self.room_name})
+                await notify_event('room_list_update', {
+                    'room_id': self.room_name,
+                    'action': 'new_message',
+                    'timestamp': timestamp.isoformat()
+                })
 
             # Handle trigger progression for non-agent users
             if not self.is_agent and sender != 'agent':
@@ -1096,7 +1212,28 @@ class ChatConsumer(AsyncWebsocketConsumer):
             print(f"[ERROR] Error in handle_new_message: {e}")
             import traceback
             traceback.print_exc()
+
+    async def get_room_unread_counts(self):
+        """Get unread counts for all active rooms"""
+        try:
+            room_collection = await sync_to_async(get_room_collection)()
+            rooms = await sync_to_async(lambda: list(
+                room_collection.find({'is_active': True}, {'room_id': 1})
+            ))()
             
+            unread_counts = {}
+            for room in rooms:
+                room_id = room['room_id']
+                unread_key = f'unread:{room_id}'
+                unread_count = int(redis_client.get(unread_key) or 0)
+                if unread_count > 0:
+                    unread_counts[room_id] = unread_count
+            
+            return unread_counts
+        except Exception as e:
+            print(f"[ERROR] Getting room unread counts: {e}")
+            return {}
+
     async def agent_assigned(self, event):
         """Handle agent assignment notification"""
         try:
@@ -1142,20 +1279,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
             chat_collection = await sync_to_async(get_chat_collection)()
             contact_collection = await sync_to_async(get_contact_collection)()
 
-            # If agent, fetch only assigned rooms
-            # user = getattr(self.scope, 'jwt_user', {})  # optional future logic
             rooms = await sync_to_async(lambda: list(
                 room_collection.find({'is_active': True})
             ))()
 
             room_list = []
+            total_unread = 0
+            
             for room in rooms:
                 room_id = room['room_id']
                 assigned_agent = room.get('assigned_agent')
 
+                # Optional: Filter by agent ID in production
                 if self.is_agent and assigned_agent not in [None, 'agent', 'superadmin']:
-                    # Optionally filter by agent ID in production
-                    pass  # You can add filtering logic here
+                    pass
 
                 last_message = await sync_to_async(lambda: chat_collection.find_one(
                     {'room_id': room_id},
@@ -1165,8 +1302,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 contact_doc = await sync_to_async(lambda: contact_collection.find_one({'room_id': room_id}))()
                 unread_key = f'unread:{room_id}'
                 unread_count = int(redis_client.get(unread_key) or 0)
+                total_unread += unread_count
 
-                room_list.append({
+                room_info = {
                     'room_id': room_id,
                     'widget_id': room.get('widget_id'),
                     'contact': {
@@ -1175,13 +1313,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
                         'phone': contact_doc.get('phone') if contact_doc else ''
                     },
                     'latest_message': last_message.get('message') if last_message else '',
-                    'timestamp': last_message.get('timestamp').isoformat() if last_message else '',
-                    'unread_count': unread_count
-                })
+                    'latest_message_sender': last_message.get('sender') if last_message else '',
+                    'timestamp': last_message.get('timestamp').isoformat() if last_message and last_message.get('timestamp') else '',
+                    'unread_count': unread_count,
+                    'has_unread': unread_count > 0,
+                    'assigned_agent': assigned_agent
+                }
+
+                room_list.append(room_info)
+
+            # Sort rooms by latest message timestamp (most recent first)
+            room_list.sort(key=lambda x: x['timestamp'], reverse=True)
 
             await self.send(text_data=json.dumps({
                 'type': 'room_list',
-                'rooms': room_list
+                'rooms': room_list,
+                'total_unread': total_unread,
+                'timestamp': datetime.utcnow().isoformat()
             }))
         except Exception as e:
             print(f"[ERROR] Failed to send room list: {e}")
@@ -1206,8 +1354,57 @@ class ChatConsumer(AsyncWebsocketConsumer):
         event_type = event.get('event_type')
         payload = event.get('payload', {})
 
-        if self.is_agent and event_type == 'room_list_update':
-            await self.send_room_list()
+        try:
+            if self.is_agent:
+                if event_type == 'room_list_update':
+                    await self.send_room_list()
+                elif event_type == 'new_message_agent':
+                    # Send real-time notification for new message
+                    await self.send(text_data=json.dumps({
+                        'type': 'new_message_notification',
+                        'room_id': payload.get('room_id'),
+                        'message': payload.get('message'),
+                        'sender': payload.get('sender'),
+                        'message_id': payload.get('message_id'),
+                        'contact_id': payload.get('contact_id'),
+                        'unread_count': payload.get('unread_count'),
+                        'timestamp': payload.get('timestamp'),
+                        'file_url': payload.get('file_url', ''),
+                        'file_name': payload.get('file_name', '')
+                    }))
+                elif event_type == 'unread_update':
+                    # Send unread count update
+                    await self.send(text_data=json.dumps({
+                        'type': 'unread_update',
+                        'room_id': payload.get('room_id'),
+                        'unread_count': payload.get('unread_count'),
+                        'timestamp': payload.get('timestamp')
+                    }))
+                elif event_type == 'new_contact':
+                    # Send new contact notification
+                    await self.send(text_data=json.dumps({
+                        'type': 'new_contact_notification',
+                        'room_id': payload.get('room_id'),
+                        'contact_info': payload.get('contact_info'),
+                        'timestamp': payload.get('timestamp')
+                    }))
+                elif event_type == 'agent_status_change':
+                    # Send agent status change notification
+                    await self.send(text_data=json.dumps({
+                        'type': 'agent_status_change',
+                        'agent_id': payload.get('agent_id'),
+                        'status': payload.get('status'),
+                        'timestamp': payload.get('timestamp')
+                    }))
+                elif event_type == 'new_room':
+                    # Send new room notification
+                    await self.send(text_data=json.dumps({
+                        'type': 'new_room_notification',
+                        'room_id': payload.get('room_id'),
+                        'timestamp': payload.get('timestamp')
+                    }))
+        except Exception as e:
+            print(f"[ERROR] Error in notify: {e}")
 
     async def chat_message(self, event):
         try:
@@ -1231,15 +1428,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
             display_name = "Agent" if event.get('is_agent', False) else "User"
             
             await self.send(text_data=json.dumps({
+                'type': 'typing_status',
                 'typing': event['typing'],
                 'content': event.get('content', ''),
-                'sender': event['sender'],
-                'sender': display_name,  # Clean display name (User/Agent)
-                'original_sender': event['sender']  # Keep original sender ID if needed
+                'sender': display_name,
+                'original_sender': event['sender']
             }))
 
     async def message_seen(self, event):
         await self.send(text_data=json.dumps({
+            'type': 'message_seen',
             'message_id': event['message_id'],
             'status': 'seen',
             'sender': event['sender'],
@@ -1251,6 +1449,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             print(f"[DEBUG] Sending show form signal to client: {event}")
             await self.send(text_data=json.dumps({
+                'type': 'show_form_signal',
                 'show_form': event['show_form'],  
                 'form_type': event['form_type']
             }))
@@ -1269,3 +1468,173 @@ class ChatConsumer(AsyncWebsocketConsumer):
             print(f"[DEBUG] Room status update result: {result.modified_count} modified, {result.upserted_id} upserted")
         except Exception as e:
             print(f"[ERROR] Updating room status: {e}")
+
+
+# Additional utility functions for enhanced notifications
+
+class NotificationConsumer(AsyncWebsocketConsumer):
+    """Dedicated consumer for agent dashboard notifications"""
+    
+    async def connect(self):
+        self.is_agent = 'agent=true' in self.scope.get('query_string', b'').decode()
+        self.agent_id = self.scope.get('url_route', {}).get('kwargs', {}).get('agent_id')
+        
+        if not self.is_agent:
+            await self.close()
+            return
+        
+        # Join agent notification group
+        await self.channel_layer.group_add('notifications_agent', self.channel_name)
+        await self.accept()
+        
+        # Send initial dashboard data
+        await self.send_dashboard_summary()
+        
+        # Set agent online status
+        if self.agent_id:
+            status_key = f"agent_online:{self.agent_id}"
+            redis_client.setex(status_key, 3600, datetime.utcnow().isoformat())
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard('notifications_agent', self.channel_name)
+        
+        # Set agent offline status
+        if hasattr(self, 'agent_id') and self.agent_id:
+            status_key = f"agent_online:{self.agent_id}"
+            redis_client.delete(status_key)
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+            
+            if data.get('action') == 'get_dashboard_summary':
+                await self.send_dashboard_summary()
+            elif data.get('action') == 'heartbeat':
+                # Update agent online status
+                if self.agent_id:
+                    status_key = f"agent_online:{self.agent_id}"
+                    redis_client.setex(status_key, 3600, datetime.utcnow().isoformat())
+                    
+        except json.JSONDecodeError as e:
+            print(f"[ERROR] JSON decode error in NotificationConsumer: {e}")
+
+    async def send_dashboard_summary(self):
+        """Send dashboard summary with overall statistics"""
+        try:
+            room_collection = await sync_to_async(get_room_collection)()
+            contact_collection = await sync_to_async(get_contact_collection)()
+            
+            # Get total active rooms
+            total_rooms = await sync_to_async(lambda: room_collection.count_documents({'is_active': True}))()
+            
+            # Get total unread messages across all rooms
+            total_unread = 0
+            rooms_with_unread = 0
+            
+            rooms = await sync_to_async(lambda: list(
+                room_collection.find({'is_active': True}, {'room_id': 1})
+            ))()
+            
+            for room in rooms:
+                room_id = room['room_id']
+                unread_key = f'unread:{room_id}'
+                unread_count = int(redis_client.get(unread_key) or 0)
+                total_unread += unread_count
+                if unread_count > 0:
+                    rooms_with_unread += 1
+            
+            # Get total contacts today
+            today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            contacts_today = await sync_to_async(lambda: contact_collection.count_documents({
+                'timestamp': {'$gte': today}
+            }))()
+            
+            # Get online agents count
+            online_agents = len([key for key in redis_client.keys('agent_online:*')])
+            
+            await self.send(text_data=json.dumps({
+                'type': 'dashboard_summary',
+                'data': {
+                    'total_rooms': total_rooms,
+                    'total_unread': total_unread,
+                    'rooms_with_unread': rooms_with_unread,
+                    'contacts_today': contacts_today,
+                    'online_agents': online_agents,
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+            }))
+            
+        except Exception as e:
+            print(f"[ERROR] Error sending dashboard summary: {e}")
+
+    async def notify(self, event):
+        """Handle dashboard notifications"""
+        event_type = event.get('event_type')
+        payload = event.get('payload', {})
+        
+        try:
+            if event_type in ['new_message_agent', 'unread_update', 'new_contact', 'new_room']:
+                # Send updated dashboard summary for these events
+                await self.send_dashboard_summary()
+                
+            # Forward specific notifications
+            await self.send(text_data=json.dumps({
+                'type': f'dashboard_{event_type}',
+                'payload': payload,
+                'timestamp': datetime.utcnow().isoformat()
+            }))
+            
+        except Exception as e:
+            print(f"[ERROR] Error in dashboard notify: {e}")
+
+
+# Redis utility functions for notification management
+
+def get_agent_notification_preferences(agent_id):
+    """Get agent notification preferences from Redis"""
+    pref_key = f"agent_prefs:{agent_id}"
+    prefs = redis_client.get(pref_key)
+    if prefs:
+        return json.loads(prefs)
+    
+    # Default preferences
+    default_prefs = {
+        'new_messages': True,
+        'new_contacts': True,
+        'room_updates': True,
+        'sound_notifications': True,
+        'desktop_notifications': True
+    }
+    redis_client.setex(pref_key, 86400, json.dumps(default_prefs))  # 24 hours
+    return default_prefs
+
+def set_agent_notification_preferences(agent_id, preferences):
+    """Set agent notification preferences in Redis"""
+    pref_key = f"agent_prefs:{agent_id}"
+    redis_client.setex(pref_key, 86400, json.dumps(preferences))
+
+def get_unread_summary():
+    """Get summary of unread messages across all rooms"""
+    room_collection = get_room_collection()
+    rooms = list(room_collection.find({'is_active': True}, {'room_id': 1}))
+    
+    unread_summary = {
+        'total_unread': 0,
+        'rooms_with_unread': 0,
+        'room_details': []
+    }
+    
+    for room in rooms:
+        room_id = room['room_id']
+        unread_key = f'unread:{room_id}'
+        unread_count = int(redis_client.get(unread_key) or 0)
+        
+        if unread_count > 0:
+            unread_summary['total_unread'] += unread_count
+            unread_summary['rooms_with_unread'] += 1
+            unread_summary['room_details'].append({
+                'room_id': room_id,
+                'unread_count': unread_count
+            })
+    
+    return unread_summary
