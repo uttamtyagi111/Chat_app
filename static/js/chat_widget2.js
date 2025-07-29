@@ -84,30 +84,8 @@ async function initializeChatWidget() {
             return;
         }
 
-        // Widget configuration
-        console.log("Initializing chat widget with ID:", widgetId);
         const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-
-        const WIDGET_CONFIG = {
-            apiUrl: isLocal ? "http://localhost:8000/chat/user-chat/" : "http://208.87.134.149:8003/chat/user-chat/",
-            wsUrl: isLocal ? "ws://localhost:8000/ws/chat/" : "ws://208.87.134.149:8003/ws/chat/",
-            fileUploadUrl: isLocal ? "http://localhost:8000/chat/user-chat/upload-file/" : "http://208.87.134.149:8003/chat/user-chat/upload-file/",
-            historyUrl: isLocal ? "http://localhost:8000/chat/user-chat/history/" : "http://208.87.134.149:8003/chat/user-chat/history/",
-            position: "right",
-            chatTitle: "Chat with Us",
-            placeholder: "Type a message...",
-            bubbleSize: "100",
-            windowWidth: "340",
-            windowHeight: "400",
-            bottomOffset: "20",
-            sideOffset: "20",
-            enableAttentionGrabber: false,
-            attentionGrabber: "",
-            is_active: false,
-            themeColor: "#4e8cff",
-            logoUrl: ""
-        };
-
+        
         const baseApi = isLocal ? "http://localhost:8000" : "http://208.87.134.149:8003";
 
         // Get client IP first
@@ -134,19 +112,43 @@ async function initializeChatWidget() {
 
         if (!response.ok) throw new Error("Failed to initialize chat");
 
+        // BUILD DYNAMIC WIDGET CONFIG FROM BACKEND DATA
         const data = await response.json();
+        const widgetData = data.widget || {};
+        const settings = widgetData.settings || {};
+
+        // Widget configuration
+        console.log("Initializing chat widget with ID and info:", widgetId);
+
+        const WIDGET_CONFIG = {
+            apiUrl: isLocal ? "http://localhost:8000/chat/user-chat/" : "http://208.87.134.149:8003/chat/user-chat/",
+            wsUrl: isLocal ? "ws://localhost:8000/ws/chat/" : "ws://208.87.134.149:8003/ws/chat/",
+            fileUploadUrl: isLocal ? "http://localhost:8000/chat/user-chat/upload-file/" : "http://208.87.134.149:8003/chat/user-chat/upload-file/",
+            historyUrl: isLocal ? "http://localhost:8000/chat/user-chat/history/" : "http://208.87.134.149:8003/chat/user-chat/history/",
+            position: settings.position,
+            chatTitle: "Chat with Us",
+            placeholder: "Type a message...",
+            bubbleSize: "100",
+            windowWidth: "340",
+            windowHeight: "400",
+            bottomOffset: "20",
+            sideOffset: "20",
+            enableAttentionGrabber: false,
+            attentionGrabber: settings.attentionGrabber,
+            is_active: false,
+            themeColor: settings.primaryColor,
+            logoUrl: settings.logo
+        };
 
         // Store room ID immediately
         roomId = data.room_id;
         localStorage.setItem("chat_room_id", roomId);
         localStorage.setItem("chat_widget_id", widgetId);
 
-        // Apply widget settings from backend
-        const settings = data.widget?.settings || {};
         Object.assign(WIDGET_CONFIG, {
-            themeColor: settings.primaryColor || WIDGET_CONFIG.themeColor,
-            logoUrl: settings.logo || WIDGET_CONFIG.logoUrl,
-            position: settings.position || WIDGET_CONFIG.position,
+            themeColor: settings.primaryColor,
+            logoUrl: settings.logo,
+            position: settings.position,
             enableAttentionGrabber: settings.enableAttentionGrabber || false,
             attentionGrabber: settings.attentionGrabber || "",
             chatTitle: settings.name || WIDGET_CONFIG.chatTitle,
@@ -190,6 +192,7 @@ async function initializeChatWidget() {
                 .replace(/\${parseInt\(WIDGET_CONFIG\.bottomOffset\) \+ parseInt\(WIDGET_CONFIG\.bubbleSize\) \+ 10}/g, parseInt(WIDGET_CONFIG.bottomOffset) + parseInt(WIDGET_CONFIG.bubbleSize) + 10)
                 .replace(/\${WIDGET_CONFIG\.windowWidth}/g, WIDGET_CONFIG.windowWidth)
                 .replace(/\${WIDGET_CONFIG\.windowHeight}/g, WIDGET_CONFIG.windowHeight)
+                .replace(/\${WIDGET_CONFIG\.position}/g, WIDGET_CONFIG.position)
                 .replace(/\${bubblePosition}/g, bubblePosition)
                 .replace(/\${windowPosition}/g, windowPosition);
 
@@ -723,15 +726,27 @@ async function initializeChatWidget() {
 
             let content = message ? sanitizeHTML(message) : "";
             if (fileUrl) {
-                const isImage = /\.(jpg|jpeg|png|gif)$/i.test(fileName);
+                const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
+                const isPdf = /\.pdf$/i.test(fileName);
+                const isDoc = /\.(doc|docx)$/i.test(fileName);
+                
+                let fileIcon = "📎";
+                if (isImage) fileIcon = "🖼️";
+                else if (isPdf) fileIcon = "📄";
+                else if (isDoc) fileIcon = "📝";
+                
                 content += `<div class="file-preview">${
                     isImage 
-                        ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" />`
-                        : `<a href="${sanitizeHTML(fileUrl)}" target="_blank" rel="noopener noreferrer">${sanitizeHTML(fileName)}</a>`
+                        ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" onclick="openImageModal('${sanitizeHTML(fileUrl)}')" />`
+                        : `<a href="${sanitizeHTML(fileUrl)}" target="_blank" rel="noopener noreferrer">${fileIcon} ${sanitizeHTML(fileName)}</a>`
                 }</div>`;
             }
 
-            div.innerHTML = `${content}<span class="timestamp">${timeString} ${ticks}</span>`;
+            // div.innerHTML = `${content}<span class="timestamp">${timeString} ${ticks}</span>`;
+            div.innerHTML = `
+                <span class="message-content">${content}</span>
+                <span class="timestamp">${timeString} ${ticks}</span>
+            `;
             elements.messagesDiv.appendChild(div);
             elements.messagesDiv.scrollTop = elements.messagesDiv.scrollHeight;
 

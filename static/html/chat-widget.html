@@ -1,33 +1,89 @@
-<!-- Chat bubble container with notification badge -->
+<!-- Chat Bubble Container with Attention Grabber -->
 <div id="chat-bubble-container">
-    ${attentionGrabberHTML}
+    <div id="attention-grabber">
+        <img src="${WIDGET_CONFIG.attentionGrabberImage}" alt="Icon" />
+        <div class="grabber-texts">
+            <div class="grabber-title">${WIDGET_CONFIG.attentionTitle || 'LET\'S CHAT'}</div>
+            <div class="grabber-subtitle">${WIDGET_CONFIG.attentionSubtitle || 'We Are Online'}</div>
+        </div>
+        <span class="grabber-badge">1</span>
+    </div>
+    
     <div id="chat-bubble">
         <img id="chat-bubble-logo" src="${WIDGET_CONFIG.logoUrl}" alt="Chat Logo" />
     </div>
     <div class="notification-badge">1</div>
 </div>
 
+<!-- Chat Window -->
 <div id="chat-window">
     <div id="chat-header">
-        ${WIDGET_CONFIG.chatTitle}
-        <!-- History controls added here -->
-        <button class="history-toggle">⚙️</button>
-        <div class="history-controls">
-            <span class="history-label">Load history:</span>
-            <select class="history-select">
-                <option value="5">Last 5 messages</option>
-                <option value="10">Last 10 messages</option>
-                <option value="full" selected>Full history</option>
-            </select>
+        <span>${WIDGET_CONFIG.chatTitle}</span>
+        <div class="header-controls">
+            <span class="connection-status connected">Online</span>
+            <div class="history-controls">
+                <span class="history-label">Load history:</span>
+                <select class="history-select">
+                    <option value="5">Last 5 messages</option>
+                    <option value="10">Last 10 messages</option>
+                    <option value="full" selected>Full history</option>
+                </select>
+            </div>
+            <span id="mute-toggle">🔊</span>
         </div>
-        <span id="mute-toggle">🔊</span>
     </div>
+    
     <div id="chat-content">
         <div id="chat-messages">
+            <!-- Background Logo -->
             <img id="chat-messages-logo" src="${WIDGET_CONFIG.logoUrl}" alt="Chat Logo"
                 onload="console.log('Logo loaded')" onerror="console.error('Failed to load logo')" />
+            
+            <!-- Welcome Message (example) -->
+            <div class="message system">
+                <span>Welcome! How can we help you today?</span>
+                <span class="timestamp">10:30 AM</span>
+            </div>
+            
+            <!-- Example Messages for Demo -->
+            <div class="message agent">
+                <span>Hello! I'm here to help you. What questions do you have?</span>
+                <span class="timestamp">10:31 AM</span>
+            </div>
+            
+            <div class="message user">
+                <span>Hi, I need help with my account</span>
+                <span class="timestamp">10:32 AM ✓✓</span>
+            </div>
+            
+            <div class="message agent">
+                <span>I'd be happy to help you with your account. Can you please provide more details about the issue you're experiencing?</span>
+                <div class="file-preview">
+                    <img src="https://via.placeholder.com/200x100" alt="Example image" />
+                </div>
+                <span class="timestamp">10:33 AM</span>
+            </div>
+            
+            <!-- Suggested Replies Example -->
+            <div class="suggested-replies">
+                <button>Login issues</button>
+                <button>Password reset</button>
+                <button>Account verification</button>
+                <button>Other</button>
+            </div>
+            
+            <!-- Typing Indicator (hidden by default) -->
+            <div class="typing-indicator" style="display: none;">
+                <div class="typing-dots">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+            </div>
         </div>
-        <div id="chat-form">
+        
+        <!-- Contact Form -->
+        <!-- <div id="chat-form" style="display: none;">
             <div class="form-group">
                 <label for="form-name">Name:</label>
                 <input id="form-name" type="text" placeholder="Enter your name" required />
@@ -37,34 +93,40 @@
                 <input id="form-email" type="email" placeholder="Enter your email" required />
             </div>
             <button id="form-submit" class="submit-btn">Submit</button>
-        </div>
+        </div> -->
+        
+        <!-- File Preview Container -->
         <div id="file-preview-container">
             <div id="file-preview-box">
                 <span id="file-preview-name"></span>
                 <span id="remove-file">✕</span>
             </div>
         </div>
+        
+        <!-- Chat Input Footer -->
         <div id="chat-footer">
-            <input id="chat-input" type="text" placeholder="${WIDGET_CONFIG.placeholder}" />
-            <label id="attach-button" for="file-input">📎</label>
-            <input id="file-input" type="file" />
-            <span id="emoji-button">😊</span>
-            <button id="send-btn">Send</button>
+            <label id="attach-button" for="file-input" title="Attach file">📎</label>
+            <input type="file" id="file-input" accept="image/*,application/pdf,.doc,.docx" style="display: none" />
+            
+            <input id="chat-input" type="text" placeholder="${WIDGET_CONFIG.placeholder}" maxlength="1000" />
+            
+            <span id="emoji-button" title="Add emoji">😊</span>
+            <button id="send-btn" title="Send message">Send</button>
         </div>
     </div>
-    <div id="emoji-picker"></div>
-</div>
-
-<!-- Loading indicator template (hidden by default) -->
-<div id="loading-template" style="display: none;">
-    <div class="loading-indicator">
-        Loading chat history...
-    </div>
-</div>
-
-<!-- Suggested replies template (hidden by default) -->
-<div id="suggested-replies-template" style="display: none;">
-    <div class="suggested-replies">
-        <!-- Replies will be added here dynamically -->
+    
+    <!-- Emoji Picker -->
+    <div id="emoji-picker">
+        <span class="emoji" title="Happy">😀</span>
+        <span class="emoji" title="Laughing">😂</span>
+        <span class="emoji" title="Heart">❤️</span>
+        <span class="emoji" title="Thumbs up">👍</span>
+        <span class="emoji" title="Thinking">🤔</span>
+        <span class="emoji" title="Sad">😢</span>
+        <span class="emoji" title="Angry">😠</span>
+        <span class="emoji" title="Surprised">😮</span>
+        <span class="emoji" title="Wink">😉</span>
+        <span class="emoji" title="Cool">😎</span>
+        <!-- More emojis can be dynamically added from WIDGET_CONFIG.emojis[] if available -->
     </div>
 </div>
