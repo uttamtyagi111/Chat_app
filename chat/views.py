@@ -2671,9 +2671,17 @@ def chat_history(request):
         messages = list(cursor)
         
         # Convert ObjectId and datetime to strings
-        for message in messages:
-            if 'timestamp' in message:
-                message['timestamp'] = message['timestamp'].isoformat()
+        # for message in messages:
+        #     if 'timestamp' in message:
+        #         message['timestamp'] = message['timestamp'].isoformat()
+        for msg in messages:
+            ts = msg.get('timestamp')
+            if isinstance(ts, datetime):
+                msg['timestamp'] = ts.isoformat()
+            elif isinstance(ts, str):
+                msg['timestamp'] = ts  # assume already serialized
+            else:
+                msg['timestamp'] = None
         
         # Reverse to get chronological order (oldest first)
         messages.reverse()
