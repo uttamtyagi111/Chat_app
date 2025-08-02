@@ -137,7 +137,7 @@ def get_widget(request, widget_id=None):
 logger = logging.getLogger(__name__)
 
 class UpdateWidgetAPIView(APIView):
-    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser]
     authentication_classes = [JWTAuthentication]
 
     def patch(self, request, widget_id):
@@ -1609,6 +1609,7 @@ class AgentChatAPIView(APIView):
             agent_id_to_assign = None
 
             if role == "agent":
+                # Agent can only assign themselves
                 agent_id_to_assign = requester_id
                 agent_doc = admin_collection.find_one({"admin_id": agent_id_to_assign, "role": "agent"})
                 if not agent_doc:
@@ -1618,14 +1619,18 @@ class AgentChatAPIView(APIView):
                     return Response({"error": "You are not assigned to this widget"}, status=status.HTTP_403_FORBIDDEN)
 
             elif role == "superadmin":
-                agent_id_to_assign = request.data.get("admin_id") or requester_id  # Use self if not provided
+                # Superadmin can assign themselves or any agent
+                agent_id_to_assign = request.data.get("agent_id") or requester_id
                 agent_doc = admin_collection.find_one({"admin_id": agent_id_to_assign})
                 if not agent_doc:
                     return Response({"error": "Agent not found"}, status=status.HTTP_404_NOT_FOUND)
 
-                if agent_doc.get("role") == "agent" or agent_id_to_assign == requester_id:
+                if agent_doc.get("role") == "agent":
                     if room_widget_id not in agent_doc.get("assigned_widgets", []):
                         return Response({"error": "Agent is not assigned to this widget"}, status=status.HTTP_403_FORBIDDEN)
+                elif agent_doc.get("role") == "superadmin" and agent_id_to_assign == requester_id:
+                    # Superadmin assigning themselves — OK
+                    pass
                 else:
                     return Response({"error": "Only agents or the superadmin themselves can be assigned"}, status=status.HTTP_403_FORBIDDEN)
             else:
@@ -1658,6 +1663,7 @@ class AgentChatAPIView(APIView):
         except Exception as e:
             logger.error(f"Unexpected Error: {str(e)}")
             return Response({"error": f"Unexpected error: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 
