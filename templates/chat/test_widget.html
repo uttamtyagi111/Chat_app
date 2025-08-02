@@ -1,27 +1,31 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-  <title>Test Chat Widget</title>
-  <style>
-        {% comment %} body {
+    <title>Test Chat Widget</title>
+    <style>
+        body {
             font-family: Arial, sans-serif;
             margin: 20px;
             background-color: #f5f5f5;
         }
+
         .container {
             max-width: 800px;
             margin: 0 auto;
             background: white;
             padding: 20px;
             border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
+
         .ip-info {
             background: #f8f9fa;
             padding: 15px;
             border-radius: 5px;
             margin: 10px 0;
         }
+
         .error {
             background: #f8d7da;
             color: #721c24;
@@ -29,28 +33,33 @@
             border-radius: 5px;
             border: 1px solid #f5c6cb;
         }
+
         .info-grid {
             display: grid;
             grid-template-columns: 1fr 2fr;
             gap: 10px;
             margin: 10px 0;
         }
+
         .info-label {
             font-weight: bold;
             color: #495057;
         }
-        .lookup-form {  
+
+        .lookup-form {
             margin: 20px 0;
             padding: 15px;
             background: #e9ecef;
             border-radius: 5px;
         }
+
         input[type="text"] {
             padding: 8px;
             width: 200px;
             border: 1px solid #ddd;
             border-radius: 4px;
         }
+
         button {
             padding: 8px 16px;
             background: #007bff;
@@ -59,36 +68,42 @@
             border-radius: 4px;
             cursor: pointer;
         }
+
         button:hover {
             background: #0056b3;
-        } {% endcomment %}
-    </style>
-  {% load static %}
-</head>
-<body>
-  <h1>Test Chat Widget</h1>
-  <div class="container">
-        
+        }
 
- <!-- Correct way to include static JS file -->
-    
-<!-- Start of Chat Widget Script -->
-<script
-   src="http://localhost:8000/static/js/chat_widget2.js?widget_id=172dd070-145e"></script>
-<!-- End of Chat Widget Script -->
+            {
+            % endcomment %
+        }
+    </style>
+    {% load static %}
+</head>
+
+<body>
+    <h1>Test Chat Widget</h1>
+    <div class="container">
+
+        <!-- Correct way to include static JS file -->
+
+
+        <!-- Start of Chat Widget Script -->
+        <script src="http://localhost:8000/static/js/chat_widget2.js?widget_id=172dd070-145e"></script>
+        <!-- End of Chat Widget Script -->
 
 
 </body>
+
 </html>
 <script>
-  // This script is for testing purposes only
-  console.log("Chat widget script loaded successfully.");
+    // This script is for testing purposes only
+    console.log("Chat widget script loaded successfully.");
 
-  {% comment %} console.log("Widget ID:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color')); {% endcomment %}
-  {% comment %} console.log("Theme Color:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color'));
-  console.log("Logo URL:", document.querySelector('script[data-logo-url]').getAttribute('data-logo-url'));
-  console.log("Position:", document.querySelector('script[data-position]').getAttribute('data-position')); {% endcomment %}
-  // You can also add event listeners to test interactions with the widget.
+    {% comment %} console.log("Widget ID:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color')); {% endcomment %}
+    {% comment %} console.log("Theme Color:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color'));
+    console.log("Logo URL:", document.querySelector('script[data-logo-url]').getAttribute('data-logo-url'));
+    console.log("Position:", document.querySelector('script[data-position]').getAttribute('data-position')); {% endcomment %}
+    // You can also add event listeners to test interactions with the widget.
 
 
 </script>

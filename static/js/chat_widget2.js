@@ -118,7 +118,7 @@ async function initializeChatWidget() {
         const settings = widgetData.settings || {};
 
         // Widget configuration
-        console.log("Initializing chat widget with ID and info:", widgetId);
+        console.log("Initializing chat widget with ID and info:", widgetId, settings);
 
         const WIDGET_CONFIG = {
             apiUrl: isLocal ? "http://localhost:8000/chat/user-chat/" : "http://208.87.134.149:8003/chat/user-chat/",
@@ -137,7 +137,8 @@ async function initializeChatWidget() {
             attentionGrabber: settings.attentionGrabber,
             is_active: false,
             themeColor: settings.primaryColor,
-            logoUrl: settings.logo
+            logoUrl: settings.logo,
+            welcomeMessage: settings.welcomeMessage,
         };
 
         // Store room ID immediately
@@ -150,7 +151,8 @@ async function initializeChatWidget() {
             logoUrl: settings.logo,
             position: settings.position,
             enableAttentionGrabber: settings.enableAttentionGrabber || false,
-            attentionGrabber: settings.attentionGrabber || "",
+            attentionGrabber: settings.attentionGrabber,
+            welcomeMessage: settings.welcomeMessage,
             chatTitle: settings.name || WIDGET_CONFIG.chatTitle,
             placeholder: settings.placeholder || WIDGET_CONFIG.placeholder,
             is_active: data.widget?.is_active ?? settings.is_active ?? true
@@ -208,6 +210,8 @@ async function initializeChatWidget() {
             return htmlText
                 .replace(/\${attentionGrabberHTML}/g, attentionGrabberHTML)
                 .replace(/\${WIDGET_CONFIG\.logoUrl}/g, WIDGET_CONFIG.logoUrl)
+                .replace(/\${WIDGET_CONFIG\.attentionGrabber}/g, WIDGET_CONFIG.attentionGrabber)
+                .replace(/\${WIDGET_CONFIG\.welcomeMessage}/g, WIDGET_CONFIG.welcomeMessage)
                 .replace(/\${WIDGET_CONFIG\.chatTitle}/g, WIDGET_CONFIG.chatTitle)
                 .replace(/\${WIDGET_CONFIG\.placeholder}/g, WIDGET_CONFIG.placeholder)
                 .replace(/\${bubblePosition}/g, bubblePosition);
@@ -392,24 +396,80 @@ async function initializeChatWidget() {
             });
         }
 
-        // Set up emoji picker
-        if (elements.emojiPickerContainer) {
-            const emojiScript = document.createElement("script");
-            emojiScript.src = "https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js";
-            emojiScript.type = "module";
-            document.head.appendChild(emojiScript);
+        // // Set up emoji picker
+        // if (elements.emojiPickerContainer) {
+        //     const emojiScript = document.createElement("script");
+        //     emojiScript.src = "https://cdn.jsdelivr.net/npm/emoji-picker-element@^1/index.js";
+        //     emojiScript.type = "module";
+        //     document.head.appendChild(emojiScript);
 
-            emojiScript.onload = () => {
-                const emojiPicker = document.createElement("emoji-picker");
-                elements.emojiPickerContainer.appendChild(emojiPicker);
-                emojiPicker.addEventListener("emoji-click", (event) => {
-                    if (elements.input) {
-                        elements.input.value += event.detail.unicode;
+        //     emojiScript.onload = () => {
+        //         const emojiPicker = document.createElement("emoji-picker");
+        //         elements.emojiPickerContainer.appendChild(emojiPicker);
+        //         emojiPicker.addEventListener("emoji-click", (event) => {
+        //             if (elements.input) {
+        //                 elements.input.value += event.detail.unicode;
+        //                 elements.emojiPickerContainer.style.display = "none";
+        //                 notifyTyping();
+        //             }
+        //         });
+        //     };
+        // }
+
+        // Set up emoji picker - FIXED VERSION
+        if (elements.emojiButton && elements.emojiPickerContainer && elements.input) {
+            // Show/hide emoji picker on button click
+            elements.emojiButton.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const isVisible = elements.emojiPickerContainer.style.display === "block";
+                elements.emojiPickerContainer.style.display = isVisible ? "none" : "block";
+                console.log("Emoji picker toggled:", !isVisible);
+            });
+
+            // Add click event listeners to existing emoji spans
+            const emojiSpans = elements.emojiPickerContainer.querySelectorAll('.emoji');
+            emojiSpans.forEach(emoji => {
+                emoji.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const emojiChar = emoji.textContent;
+                    elements.input.value += emojiChar;
+                    elements.input.focus();
+                    elements.emojiPickerContainer.style.display = "none";
+                    console.log("Emoji added:", emojiChar);
+                    
+                    // Trigger typing notification
+                    notifyTyping();
+                });
+            });
+
+            // Close emoji picker when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!elements.emojiPickerContainer.contains(e.target) && e.target !== elements.emojiButton) {
+                    elements.emojiPickerContainer.style.display = "none";
+                }
+            });
+
+            // Optional: Add more emojis dynamically from config if available
+            if (typeof WIDGET_CONFIG !== 'undefined' && WIDGET_CONFIG.emojis && WIDGET_CONFIG.emojis.length > 0) {
+                // Clear existing emojis and add from config
+                elements.emojiPickerContainer.innerHTML = '';
+                WIDGET_CONFIG.emojis.forEach(emojiData => {
+                    const emojiSpan = document.createElement('span');
+                    emojiSpan.className = 'emoji';
+                    emojiSpan.textContent = emojiData.emoji || emojiData;
+                    emojiSpan.title = emojiData.title || emojiData.name || '';
+                    emojiSpan.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        elements.input.value += emojiSpan.textContent;
+                        elements.input.focus();
                         elements.emojiPickerContainer.style.display = "none";
                         notifyTyping();
-                    }
+                    });
+                    elements.emojiPickerContainer.appendChild(emojiSpan);
                 });
-            };
+            }
+
+            console.log("✅ Emoji picker setup complete");
         }
 
         // Set up chat bubble toggle
@@ -593,138 +653,245 @@ async function initializeChatWidget() {
         }
 
         // Message handling functions
-       function handleIncomingMessage(data) {
-            if (!elements.messagesDiv || !elements.formDiv || !elements.footer) return;
+       // Fixed Message handling function
+    function handleIncomingMessage(data) {
+        if (!elements.messagesDiv || !elements.formDiv || !elements.footer) {
+            console.error("❌ Required DOM elements not found:", {
+                messagesDiv: !!elements.messagesDiv,
+                formDiv: !!elements.formDiv,
+                footer: !!elements.footer
+            });
+            return;
+        }
 
-            console.log("📩 Incoming message:", data);
+    console.log("📩 Processing incoming message:", data);
 
-            // Form trigger keywords (case-insensitive)
-            const FORM_TRIGGER_KEYWORDS = [
-                "fill the following information",
-                "provide your details",
-                "enter your name and email",
-                "we need your contact information",
-                "please share your details"
-            ];
-
-            // --- Enhanced Form Trigger Logic ---
-            const isFormTriggerMessage = data.message && 
-                FORM_TRIGGER_KEYWORDS.some(keyword => 
-                    data.message.toLowerCase().includes(keyword.toLowerCase())
-                );
-            
-            const shouldShowForm = (data.show_form && data.form_type === "user_info") || isFormTriggerMessage;
-
-            if (shouldShowForm) {
-                elements.formDiv.style.display = "block";
-                elements.footer.style.display = "none";
-                
-                // Show the trigger message (unless it's a hidden system command)
-                if (data.message && !data.hidden_trigger) {
-                    appendMessage(
-                        data.sender || "System",
-                        data.message,
-                        null,
-                        null,
-                        "agent",
-                        data.message_id || `sys-${Date.now()}`,
-                        "delivered",
-                        data.timestamp
-                    );
-                }
+    // Handle typing indicators FIRST (before other checks)
+    if (data.type === 'typing_status' || (data.typing !== undefined && data.sender !== "User")) {
+        const typingId = `typing-${data.sender}`;
+        const existingTyping = document.getElementById(typingId);
+        
+        if (data.typing) {
+            // Show typing indicator
+            if (!existingTyping) {
+                const typingElement = document.createElement("div");
+                typingElement.id = typingId;
+                typingElement.className = "message system typing-indicator";
+                typingElement.innerHTML = `<i>${sanitizeHTML(data.sender)} is typing...</i>`;
+                elements.messagesDiv.appendChild(typingElement);
                 elements.messagesDiv.scrollTop = elements.messagesDiv.scrollHeight;
-                return;
+                console.log("✅ Typing indicator shown for:", data.sender);
             }
-
-            // Handle form submission confirmation
-            if (data.form_data_received) {
-                elements.formDiv.style.display = "none";
-                elements.footer.style.display = "flex";
-                appendSystemMessage("Thank you for your information!");
-                return;
-            }
-
-            // Handle typing indicators
-            if (data.typing && data.sender !== "User") {
-                const typingId = `typing-${data.sender}`;
-                if (!document.getElementById(typingId)) {
-                    const typingElement = document.createElement("div");
-                    typingElement.id = typingId;
-                    typingElement.className = "message system";
-                    typingElement.innerHTML = `<i>${sanitizeHTML(data.sender)} is typing...</i>`;
-                    elements.messagesDiv.appendChild(typingElement);
-                    elements.messagesDiv.scrollTop = elements.messagesDiv.scrollHeight;
-                    setTimeout(() => {
-                        const el = document.getElementById(typingId);
-                        if (el) el.remove();
-                    }, 2000);
+            // Auto-remove typing indicator after 3 seconds
+            setTimeout(() => {
+                const el = document.getElementById(typingId);
+                if (el) {
+                    el.remove();
+                    console.log("🗑️ Typing indicator removed for:", data.sender);
                 }
-                return;
+            }, 3000);
+        } else {
+            // Remove typing indicator when typing stops
+            if (existingTyping) {
+                existingTyping.remove();
+                console.log("🗑️ Typing indicator removed (stopped) for:", data.sender);
             }
+        }
+        
+        // If this is ONLY a typing status update, don't process further
+        if (data.type === 'typing_status' && !data.message && !data.file_url) {
+            console.log("⏭️ Only typing status, skipping further processing");
+            return;
+        }
+    }
 
-            // Handle message seen status
-            if (data.status === "seen" && sentMessages[data.message_id]) {
-                updateMessageStatus(data.message_id, data.status);
-                return;
+    // Form trigger keywords (case-insensitive)
+    const FORM_TRIGGER_KEYWORDS = [
+        "fill the following information",
+        "provide your details", 
+        "enter your name and email",
+        "we need your contact information",
+        "please share your details"
+    ];
+
+    // Enhanced Form Trigger Logic
+    const isFormTriggerMessage = data.message && 
+        FORM_TRIGGER_KEYWORDS.some(keyword => 
+            data.message.toLowerCase().includes(keyword.toLowerCase())
+        );
+    
+    const shouldShowForm = (data.show_form && data.form_type === "user_info") || isFormTriggerMessage;
+
+    if (shouldShowForm) {
+        console.log("📋 Showing form due to trigger");
+        elements.formDiv.style.display = "block";
+        elements.footer.style.display = "none";
+        
+        // Show the trigger message (unless it's a hidden system command)
+        if (data.message && !data.hidden_trigger) {
+            appendMessage(
+                data.sender || "System",
+                data.message,
+                null,
+                null,
+                "agent",
+                data.message_id || `sys-${Date.now()}`,
+                "delivered",
+                data.timestamp
+            );
+            console.log("✅ Form trigger message displayed");
+        }
+        elements.messagesDiv.scrollTop = elements.messagesDiv.scrollHeight;
+        return;
+    }
+
+    // Handle form submission confirmation
+    if (data.form_data_received) {
+        console.log("📋 Form data received, hiding form");
+        elements.formDiv.style.display = "none";
+        elements.footer.style.display = "flex";
+        appendSystemMessage("Thank you for your information!");
+        return;
+    }
+
+    // Handle message seen status updates
+    if (data.status === "seen" && data.message_id && sentMessages[data.message_id]) {
+        console.log("👀 Updating message status to seen:", data.message_id);
+        updateMessageStatus(data.message_id, data.status);
+        return;
+    }
+
+    // Handle errors
+    if (data.error) {
+        console.log("❌ Displaying error message:", data.error);
+        appendSystemMessage(`Error: ${sanitizeHTML(data.error)}`);
+        return;
+    }
+
+    // Handle agent assignment
+    if (data.type === "agent_assigned") {
+        console.log("👤 Agent assigned:", data.agent_name);
+        appendSystemMessage(`Agent ${data.agent_name} has joined the chat`);
+        return;
+    }
+
+    // Handle suggested replies
+    if (data.suggested_replies && data.suggested_replies.length > 0) {
+        console.log("💡 Showing suggested replies:", data.suggested_replies);
+        showSuggestedReplies(data.suggested_replies);
+    }
+
+    // *** MAIN MESSAGE HANDLING - This is the critical part! ***
+    // Handle regular messages (including Agent messages)
+    if (data.message || data.file_url) {
+        console.log("📝 Processing main message content");
+        
+        // Remove any existing typing indicator for this sender
+        const typingId = `typing-${data.sender}`;
+        const typingElement = document.getElementById(typingId);
+        if (typingElement) {
+            typingElement.remove();
+            console.log("🗑️ Removed typing indicator before showing message");
+        }
+
+        // Determine message class based on sender
+        let messageClass = "agent"; // default for any non-user message
+        if (data.sender === "User") {
+            messageClass = "user";
+        } else if (data.sender === "System") {
+            messageClass = "system";
+        }
+        // Any other sender (like "Agent", "Bot", etc.) will be "agent" class
+
+        console.log(`📝 Displaying message from ${data.sender} with class: ${messageClass}`);
+        console.log(`📝 Message content: "${data.message}"`);
+        console.log(`📝 Message ID: ${data.message_id}`);
+        
+        // Always append the message - this was likely the main issue
+        appendMessage(
+            data.sender || "Agent", // Fallback sender name
+            data.message,
+            data.file_url,
+            data.file_name,
+            messageClass,
+            data.message_id || `msg-${Date.now()}`, // Fallback message ID
+            data.sender === "User" ? "delivered" : "delivered",
+            data.timestamp,
+            data.suggested_replies || null
+        );
+        
+        console.log("✅ Message appended to UI");
+        
+        // Mark agent messages as seen and play notification
+        if (data.sender !== "User") {
+            if (data.message_id) {
+                markMessageAsSeen(data.message_id);
+                console.log("👀 Marked message as seen:", data.message_id);
             }
-
-            // Handle errors
-            if (data.error) {
-                appendSystemMessage(`Error: ${sanitizeHTML(data.error)}`);
-                return;
-            }
-
-            // Handle agent assignment
-            if (data.type === "agent_assigned") {
-                appendSystemMessage(`Agent ${data.agent_name} has joined the chat`);
-                return;
-            }
-
-            // Handle suggested replies
-            if (data.suggested_replies && data.suggested_replies.length > 0) {
-                showSuggestedReplies(data.suggested_replies);
-            }
-
-            // Handle regular messages
-            if (data.message || data.file_url) {
-                appendMessage(
-                    data.sender,
-                    data.message,
-                    data.file_url,
-                    data.file_name,
-                    data.sender === "User" ? "user" : data.sender === "System" ? "system" : "agent",
-                    data.message_id,
-                    data.sender === "User" ? "delivered" : "delivered",
-                    data.timestamp
-                );
-                
-                if (data.sender !== "User") {
-                    markMessageAsSeen(data.message_id);
-                    playNotificationSound();
-                }
+            playNotificationSound();
+            console.log("🔊 Played notification sound");
+            
+            // Show notification badge if chat is closed
+            if (!widgetState.isOpen) {
+                showNotificationBadge();
+                console.log("🔔 Showed notification badge (chat closed)");
             }
         }
 
-        
-        function appendMessage(sender, message, fileUrl, fileName, className, messageId, status, timestamp) {
-            if (!elements.messagesDiv) return;
+        return; // Important: return after processing the message
+    }
 
-            // Check if message already exists
-            if (document.getElementById(`msg-${messageId}`)) {
+    // If we get here, log what we received for debugging
+    console.log("⚠️ Unhandled message data:", data);
+}
+
+        
+        function appendMessage(sender, message, fileUrl, fileName, className, messageId, status, timestamp, suggestedReplies = null) {
+            if (!elements.messagesDiv) {
+                console.error("❌ messagesDiv not found, cannot append message");
+                return;
+            }
+
+            // Ensure we have required parameters
+            if (!messageId) {
+                messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                console.warn("⚠️ No messageId provided, generated:", messageId);
+            }
+
+            // Check if message already exists to prevent duplicates
+            const existingMessage = document.getElementById(`msg-${messageId}`);
+            if (existingMessage) {
+                console.log(`📝 Message ${messageId} already exists, updating status`);
                 updateMessageStatus(messageId, status, message, fileUrl, fileName);
                 return;
             }
+
+            console.log(`📝 Creating NEW message element:`, {
+                messageId,
+                sender,
+                className,
+                hasMessage: !!message,
+                hasFile: !!fileUrl
+            });
 
             const div = document.createElement("div");
             div.className = `message ${className}`;
             div.id = `msg-${messageId}`;
             
-            // Format timestamp
-            const messageTime = timestamp ? new Date(timestamp) : new Date();
+            // Format timestamp - handle both string and Date objects
+            let messageTime;
+            if (timestamp) {
+                messageTime = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
+            } else {
+                messageTime = new Date();
+            }
+            
             const timeString = messageTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             const ticks = sender === "User" ? getTicks(status) : "";
 
             let content = message ? sanitizeHTML(message) : "";
+            
+            // Handle file attachments
             if (fileUrl) {
                 const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(fileName);
                 const isPdf = /\.pdf$/i.test(fileName);
@@ -737,23 +904,46 @@ async function initializeChatWidget() {
                 
                 content += `<div class="file-preview">${
                     isImage 
-                        ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" onclick="openImageModal('${sanitizeHTML(fileUrl)}')" />`
+                        ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" onclick="openImageModal('${sanitizeHTML(fileUrl)}')" style="max-width: 200px; cursor: pointer;" />`
                         : `<a href="${sanitizeHTML(fileUrl)}" target="_blank" rel="noopener noreferrer">${fileIcon} ${sanitizeHTML(fileName)}</a>`
                 }</div>`;
             }
 
-            // div.innerHTML = `${content}<span class="timestamp">${timeString} ${ticks}</span>`;
+            // Build the message HTML
             div.innerHTML = `
                 <span class="message-content">${content}</span>
                 <span class="timestamp">${timeString} ${ticks}</span>
             `;
+            
+            // Append to messages container
             elements.messagesDiv.appendChild(div);
+            console.log(`✅ Message ${messageId} successfully added to DOM`);
+
+            // Add suggested replies if provided
+            if (suggestedReplies && suggestedReplies.length > 0) {
+                showSuggestedReplies(suggestedReplies);
+            }
+
+            // Scroll to bottom
             elements.messagesDiv.scrollTop = elements.messagesDiv.scrollHeight;
 
+            // Track user messages for status updates
             if (sender === "User") {
                 sentMessages[messageId] = true;
+                console.log(`📝 Tracked user message ${messageId} for status updates`);
             }
+
+            // Force a small delay to ensure DOM update
+            setTimeout(() => {
+                const addedElement = document.getElementById(`msg-${messageId}`);
+                if (addedElement) {
+                    console.log("✅ Confirmed message is in DOM:", messageId);
+                } else {
+                    console.error("❌ Message not found in DOM after append:", messageId);
+                }
+            }, 10);
         }
+
 
         function appendSystemMessage(message, messageId = null) {
             const id = messageId || `sys-${Date.now()}`;
@@ -789,8 +979,36 @@ async function initializeChatWidget() {
             }
         }
 
+        // function showSuggestedReplies(replies) {
+        //     if (!elements.messagesDiv || !replies.length) return;
+            
+        //     const container = document.createElement("div");
+        //     container.className = "suggested-replies";
+            
+        //     replies.forEach(reply => {
+        //         const button = document.createElement("button");
+        //         button.textContent = reply;
+        //         button.addEventListener("click", () => {
+        //             if (elements.input) {
+        //                 elements.input.value = reply;
+        //                 sendMessage();
+        //             }
+        //         });
+        //         container.appendChild(button);
+        //     });
+            
+        //     elements.messagesDiv.appendChild(container);
+        //     elements.messagesDiv.scrollTop = elements.messagesDiv.scrollHeight;
+        // }
+
         function showSuggestedReplies(replies) {
             if (!elements.messagesDiv || !replies.length) return;
+            
+            // Remove any existing suggested replies
+            const existingSuggested = elements.messagesDiv.querySelector('.suggested-replies');
+            if (existingSuggested) {
+                existingSuggested.remove();
+            }
             
             const container = document.createElement("div");
             container.className = "suggested-replies";
@@ -802,6 +1020,8 @@ async function initializeChatWidget() {
                     if (elements.input) {
                         elements.input.value = reply;
                         sendMessage();
+                        // Remove suggested replies after selection
+                        container.remove();
                     }
                 });
                 container.appendChild(button);

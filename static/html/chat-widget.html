@@ -1,18 +1,17 @@
 <!-- Chat Bubble Container with Attention Grabber -->
 <div id="chat-bubble-container">
     <div id="attention-grabber">
-        <img src="${WIDGET_CONFIG.attentionGrabberImage}" alt="Icon" />
-        <div class="grabber-texts">
+        <img src="${WIDGET_CONFIG.attentionGrabber}" alt="Icon" />
+        <!-- <div class="grabber-texts">
             <div class="grabber-title">${WIDGET_CONFIG.attentionTitle || 'LET\'S CHAT'}</div>
             <div class="grabber-subtitle">${WIDGET_CONFIG.attentionSubtitle || 'We Are Online'}</div>
-        </div>
-        <span class="grabber-badge">1</span>
+        </div> -->
+        <!-- <span class="grabber-badge">1</span> -->
     </div>
-    
+
     <div id="chat-bubble">
         <img id="chat-bubble-logo" src="${WIDGET_CONFIG.logoUrl}" alt="Chat Logo" />
     </div>
-    <div class="notification-badge">1</div>
 </div>
 
 <!-- Chat Window -->
@@ -20,7 +19,7 @@
     <div id="chat-header">
         <span>${WIDGET_CONFIG.chatTitle}</span>
         <div class="header-controls">
-            <span class="connection-status connected">Online</span>
+            <!-- <span class="connection-status connected">Online</span> -->
             <div class="history-controls">
                 <span class="history-label">Load history:</span>
                 <select class="history-select">
@@ -32,38 +31,41 @@
             <span id="mute-toggle">🔊</span>
         </div>
     </div>
-    
+
     <div id="chat-content">
         <div id="chat-messages">
             <!-- Background Logo -->
-            <img id="chat-messages-logo" src="${WIDGET_CONFIG.logoUrl}" alt="Chat Logo"
-                onload="console.log('Logo loaded')" onerror="console.error('Failed to load logo')" />
-            
+            <div id="chat-messages-logo-container">
+                <img id="chat-messages-logo" src="${WIDGET_CONFIG.logoUrl}" alt="Chat Logo"
+                    onload="console.log('Logo loaded')" onerror="console.error('Failed to load logo')" />
+            </div>
+
             <!-- Welcome Message (example) -->
             <div class="message system">
-                <span>Welcome! How can we help you today?</span>
+                <span>${WIDGET_CONFIG.welcomeMessage}</span>
                 <span class="timestamp">10:30 AM</span>
             </div>
-            
+
             <!-- Example Messages for Demo -->
             <div class="message agent">
                 <span>Hello! I'm here to help you. What questions do you have?</span>
                 <span class="timestamp">10:31 AM</span>
             </div>
-            
+
             <div class="message user">
                 <span>Hi, I need help with my account</span>
                 <span class="timestamp">10:32 AM ✓✓</span>
             </div>
-            
+
             <div class="message agent">
-                <span>I'd be happy to help you with your account. Can you please provide more details about the issue you're experiencing?</span>
+                <span>I'd be happy to help you with your account. Can you please provide more details about the issue
+                    you're experiencing?</span>
                 <div class="file-preview">
                     <img src="https://via.placeholder.com/200x100" alt="Example image" />
                 </div>
                 <span class="timestamp">10:33 AM</span>
             </div>
-            
+
             <!-- Suggested Replies Example -->
             <div class="suggested-replies">
                 <button>Login issues</button>
@@ -71,7 +73,7 @@
                 <button>Account verification</button>
                 <button>Other</button>
             </div>
-            
+
             <!-- Typing Indicator (hidden by default) -->
             <div class="typing-indicator" style="display: none;">
                 <div class="typing-dots">
@@ -81,7 +83,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- Contact Form -->
         <!-- <div id="chat-form" style="display: none;">
             <div class="form-group">
@@ -94,7 +96,7 @@
             </div>
             <button id="form-submit" class="submit-btn">Submit</button>
         </div> -->
-        
+
         <!-- File Preview Container -->
         <div id="file-preview-container">
             <div id="file-preview-box">
@@ -102,19 +104,19 @@
                 <span id="remove-file">✕</span>
             </div>
         </div>
-        
+
         <!-- Chat Input Footer -->
         <div id="chat-footer">
             <label id="attach-button" for="file-input" title="Attach file">📎</label>
             <input type="file" id="file-input" accept="image/*,application/pdf,.doc,.docx" style="display: none" />
-            
+
             <input id="chat-input" type="text" placeholder="${WIDGET_CONFIG.placeholder}" maxlength="1000" />
-            
+
             <span id="emoji-button" title="Add emoji">😊</span>
             <button id="send-btn" title="Send message">Send</button>
         </div>
     </div>
-    
+
     <!-- Emoji Picker -->
     <div id="emoji-picker">
         <span class="emoji" title="Happy">😀</span>
