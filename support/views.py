@@ -603,7 +603,6 @@ def add_tag(request):
         return JsonResponse({'error': f'Unexpected server error: {str(e)}'}, status=500)
 
 
-
 @jwt_required
 @agent_or_superadmin_required
 def edit_tag(request, tag_id):
@@ -617,20 +616,22 @@ def edit_tag(request, tag_id):
         color = data.get('color')
         shortcut_id = data.get('shortcut_id')
         room_id = data.get('room_id')
+        new_widget_id = data.get('widget_id')  # New: Accept widget_id in request
 
         tag_collection = get_tag_collection()
         existing_tag = tag_collection.find_one({'tag_id': tag_id})
         if not existing_tag:
             return JsonResponse({'error': 'Tag not found'}, status=404)
 
-        widget_id = existing_tag.get('widget_id')
-        if not widget_id:
+        current_widget_id = existing_tag.get('widget_id')
+        if not current_widget_id:
             return JsonResponse({'error': 'Tag is not associated with any widget'}, status=400)
 
         user = request.jwt_user
         role = user.get('role')
         admin_id = user.get('admin_id')
 
+        # Permission check for current widget
         if role == 'agent':
             admin_doc = get_admin_collection().find_one({'admin_id': admin_id})
             if not admin_doc:
@@ -640,15 +641,36 @@ def edit_tag(request, tag_id):
             if isinstance(assigned_widgets, str):
                 assigned_widgets = [assigned_widgets]
 
-            if widget_id not in assigned_widgets:
-                return JsonResponse({'error': 'Unauthorized: Cannot edit tags from this widget'}, status=403)
+            if current_widget_id not in assigned_widgets:
+                return JsonResponse({'error': 'Unauthorized: Cannot edit tags from current widget'}, status=403)
 
-        if tag_collection.find_one({'name': name, 'widget_id': widget_id, 'tag_id': {'$ne': tag_id}}):
-            return JsonResponse({'error': f"Tag '{name}' already exists for this widget"}, status=409)
+            # If widget_id is being changed, check permission for new widget too
+            if new_widget_id and new_widget_id != current_widget_id:
+                if new_widget_id not in assigned_widgets:
+                    return JsonResponse({'error': 'Unauthorized: Cannot move tag to target widget'}, status=403)
 
+        # Determine the widget_id to use for validation
+        target_widget_id = new_widget_id if new_widget_id else current_widget_id
+
+        # Validate new widget exists (if widget_id is being changed)
+        if new_widget_id and new_widget_id != current_widget_id:
+            widget_collection = get_widget_collection()  # Assuming this function exists
+            target_widget = widget_collection.find_one({'widget_id': new_widget_id})
+            if not target_widget:
+                return JsonResponse({'error': 'Target widget not found'}, status=404)
+
+        # Check for duplicate tag name in target widget
+        if name and tag_collection.find_one({
+            'name': name, 
+            'widget_id': target_widget_id, 
+            'tag_id': {'$ne': tag_id}
+        }):
+            return JsonResponse({'error': f"Tag '{name}' already exists for the target widget"}, status=409)
+
+        # Validate shortcut_id belongs to target widget
         if shortcut_id:
             shortcut = get_shortcut_collection().find_one({'shortcut_id': shortcut_id})
-            if not shortcut or shortcut.get('widget_id') != widget_id:
+            if not shortcut or shortcut.get('widget_id') != target_widget_id:
                 return JsonResponse({'error': 'Invalid shortcut_id or widget mismatch'}, status=403)
 
         # if room_id:
@@ -656,22 +678,31 @@ def edit_tag(request, tag_id):
         #     if not room or room.get('widget_id') != widget_id:
         #         return JsonResponse({'error': 'Invalid room_id or widget mismatch'}, status=403)
 
+        # Prepare update fields
         update_fields = {
-            'name': name,
-            'color': color,
             'updated_at': timezone.now(),
-            'shortcut_id': shortcut_id,
-            'room_id': room_id,
         }
-        update_fields = {k: v for k, v in update_fields.items() if v is not None}
+        
+        # Add fields that are not None
+        if name is not None:
+            update_fields['name'] = name
+        if color is not None:
+            update_fields['color'] = color
+        if shortcut_id is not None:
+            update_fields['shortcut_id'] = shortcut_id
+        if room_id is not None:
+            update_fields['room_id'] = room_id
+        if new_widget_id is not None:
+            update_fields['widget_id'] = new_widget_id  # New: Update widget_id
 
+        # Update the tag
         tag_collection.update_one({'tag_id': tag_id}, {'$set': update_fields})
 
+        # Get updated tag
         updated_tag = tag_collection.find_one({'tag_id': tag_id})
         updated_tag['_id'] = str(updated_tag['_id'])
         updated_tag['created_at'] = str(updated_tag.get('created_at', ''))
         updated_tag['updated_at'] = str(updated_tag.get('updated_at', ''))
-        updated_tag['widget_id'] = widget_id
 
         return JsonResponse({
             'success': True,
