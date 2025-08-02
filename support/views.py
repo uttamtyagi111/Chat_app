@@ -651,10 +651,10 @@ def edit_tag(request, tag_id):
             if not shortcut or shortcut.get('widget_id') != widget_id:
                 return JsonResponse({'error': 'Invalid shortcut_id or widget mismatch'}, status=403)
 
-        if room_id:
-            room = get_room_collection().find_one({'room_id': room_id})
-            if not room or room.get('widget_id') != widget_id:
-                return JsonResponse({'error': 'Invalid room_id or widget mismatch'}, status=403)
+        # if room_id:
+        #     room = get_room_collection().find_one({'room_id': room_id})
+        #     if not room or room.get('widget_id') != widget_id:
+        #         return JsonResponse({'error': 'Invalid room_id or widget mismatch'}, status=403)
 
         update_fields = {
             'name': name,

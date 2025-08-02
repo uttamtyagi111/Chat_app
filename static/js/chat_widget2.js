@@ -236,7 +236,7 @@ async function initializeChatWidget() {
             filePreviewContainer: document.getElementById("file-preview-container"),
             filePreviewName: document.getElementById("file-preview-name"),
             messagesDiv: document.getElementById("chat-messages"),
-            formDiv: document.getElementById("chat-form"),
+            // formDiv: document.getElementById("chat-form"),
             footer: document.getElementById("chat-footer"),
             nameInput: document.getElementById("form-name"),
             emailInput: document.getElementById("form-email")
@@ -655,10 +655,10 @@ async function initializeChatWidget() {
         // Message handling functions
        // Fixed Message handling function
     function handleIncomingMessage(data) {
-        if (!elements.messagesDiv || !elements.formDiv || !elements.footer) {
+        if (!elements.messagesDiv || !elements.footer) {
             console.error("❌ Required DOM elements not found:", {
                 messagesDiv: !!elements.messagesDiv,
-                formDiv: !!elements.formDiv,
+                // formDiv: !!elements.formDiv,
                 footer: !!elements.footer
             });
             return;
@@ -724,7 +724,7 @@ async function initializeChatWidget() {
 
     if (shouldShowForm) {
         console.log("📋 Showing form due to trigger");
-        elements.formDiv.style.display = "block";
+        // elements.formDiv.style.display = "block";
         elements.footer.style.display = "none";
         
         // Show the trigger message (unless it's a hidden system command)
@@ -748,7 +748,7 @@ async function initializeChatWidget() {
     // Handle form submission confirmation
     if (data.form_data_received) {
         console.log("📋 Form data received, hiding form");
-        elements.formDiv.style.display = "none";
+        // elements.formDiv.style.display = "none";
         elements.footer.style.display = "flex";
         appendSystemMessage("Thank you for your information!");
         return;

@@ -2393,6 +2393,7 @@ def create_agent_note(request, room_id):
     if not is_agent:
         return Response({"error": "Only agents can create notes"}, status=status.HTTP_403_FORBIDDEN)
     
+    sender = request.data.get('sender')
     note_content = request.data.get('content')
     if not note_content:
         return Response({"error": "Note content is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -2403,7 +2404,7 @@ def create_agent_note(request, room_id):
     doc = {
         'note_id': note_id,
         'room_id': room_id,
-        'sender': 'Agent',  # Simply use 'Agent' as the sender
+        'sender': sender,  # Simply use 'Agent' as the sender
         'content': note_content,
         'created_at': timestamp,
         'updated_at': timestamp
