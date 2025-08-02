@@ -1074,37 +1074,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     await self.send(text_data=json.dumps({'error': 'Failed to process message.'}))
                     return
 
-                # Broadcast to the correct room
-                await self.channel_layer.group_send(
-                    self.room_group_name,
-                    {
-                        'type': 'chat_message',
-                        'message': message_data['message'],
-                        'user': self.user,
-                        'timestamp': datetime.datetime.utcnow().isoformat(),
-                        'file_url': message_data.get('file_url'),
-                    }
-                )
-
-                # ✅ Redis unread count increment
-                unread_key = f"unread:{self.room_name}"
-                redis_client.incr(unread_key)
-                unread_count = int(redis_client.get(unread_key) or 0)
-
-                # Optionally notify agents (currently commented out)
-                await notify_event("new_message_agent", {
-                    "room_id": self.room_name,
-                    "message": message_data,
-                    "sender_type": "user",
-                    "admin_id": self.admin_id  # 🔁 Add admin_id if you're notifying by admin group
-                })
-
-                await notify_event("unread_update", {
-                    "room_id": self.room_name,
-                    "unread_count": unread_count,
-                    "admin_id": self.admin_id  # 🔁 Also notify via admin_id
-                })
-
+                # ✅ REMOVED DUPLICATE LOGIC:
+                # - No more redis_client.incr(unread_key) here
+                # - No more notify_event() calls here
+                # - No more channel_layer.group_send() here
+                # 
+                # All of this is now handled inside handle_new_message()
+                
+                print(f"[DEBUG] Message processed successfully: {message_data['message_id']}")
 
         except json.JSONDecodeError as e:
             print(f"[ERROR] JSON decode error: {e}")
@@ -1501,7 +1478,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             room = await sync_to_async(lambda: room_collection.find_one({'room_id': self.room_name}))()
             if not room:
                 print(f"[ERROR] Room {self.room_name} not found.")
-                return
+                return None  # Explicitly return None on error
 
             if not contact_id:
                 contact_id = room.get('contact_id') or generate_contact_id()
@@ -1639,11 +1616,25 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 else:
                     print("[DEBUG] No more triggers to send or not initialized.")
 
+            # Return the message data that the calling code expects
+            return {
+                'room_id': self.room_name,# ✅ Include room_id
+                'widget_id': widget_id,
+                'message': message,
+                'file_url': file_url,
+                'file_name': file_name,
+                'message_id': message_id,
+                'contact_id': contact_id,
+                'sender': display_sender_name,
+                'timestamp': timestamp_iso,
+                'suggested_replies': suggested_replies
+            }
+
         except Exception as e:
             print(f"[ERROR] Error in handle_new_message: {e}")
             import traceback
             traceback.print_exc()
-
+            return None  # Explicitly return None on error
 
     async def get_room_unread_counts(self):
         """Get unread counts for rooms accessible to this agent"""
