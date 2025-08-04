@@ -21,6 +21,8 @@ urlpatterns = [
     path('tag/<str:tag_id>/', views.tag_detail, name='tag-detail'),
     path('tag/edit/<str:tag_id>/', views.edit_tag, name='edit-tag'),
     path('tag/delete/<str:tag_id>/', views.delete_tag, name='delete-tag'),
+    path('tags/shortcut/<str:shortcut_id>/', views.tags_by_shortcut_id, name='tags_by_shortcut_id'),
+    path('tags/room/<str:room_id>/', views.tags_by_room_id, name='tags_by_room_id'),
 
     # Triggers
     path('triggers/', views.get_triggers_api, name='trigger-list'),

@@ -475,6 +475,111 @@ def tag_list(request):
 
 @jwt_required
 @agent_or_superadmin_required
+def tags_by_shortcut_id(request, shortcut_id):
+    """
+    GET API to find tags by shortcut ID
+    URL: /api/tags/shortcut/<shortcut_id>/
+    """
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
+    
+    if not shortcut_id:
+        return JsonResponse({'error': 'Shortcut ID is required'}, status=400)
+
+    user = request.jwt_user
+    role = user.get('role')
+    admin_id = user.get('admin_id')
+
+    tag_collection = get_tag_collection()
+
+    # Base query with shortcut_id
+    query = {'shortcut_id': shortcut_id}
+    
+    # 🔐 If agent, only return tags from assigned widgets
+    if role == 'agent':
+        admin_doc = get_admin_collection().find_one({'admin_id': admin_id})
+        if not admin_doc:
+            return JsonResponse({'error': 'Agent not found'}, status=404)
+
+        assigned_widgets = admin_doc.get('assigned_widgets', [])
+        if isinstance(assigned_widgets, str):
+            assigned_widgets = [assigned_widgets]
+
+        query['widget_id'] = {'$in': assigned_widgets}
+
+    tags = list(tag_collection.find(query))
+    
+    # Convert ObjectId and datetime to string
+    for t in tags:
+        t['id'] = str(t['_id'])
+        t['_id'] = str(t['_id'])
+        t['created_at'] = str(t.get('created_at'))
+        if 'updated_at' in t:
+            t['updated_at'] = str(t['updated_at'])
+
+    return JsonResponse({
+        'success': True, 
+        'tags': tags,
+        'count': len(tags),
+        'shortcut_id': shortcut_id
+    }, status=200)
+
+
+@jwt_required
+@agent_or_superadmin_required
+def tags_by_room_id(request, room_id):
+    """
+    GET API to find tags by room ID
+    URL: /api/tags/room/<room_id>/
+    """
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Invalid request method'}, status=400)
+    
+    if not room_id:
+        return JsonResponse({'error': 'Room ID is required'}, status=400)
+
+    user = request.jwt_user
+    role = user.get('role')
+    admin_id = user.get('admin_id')
+
+    tag_collection = get_tag_collection()
+
+    # Base query with room_id
+    query = {'room_id': room_id}
+    
+    # 🔐 If agent, only return tags from assigned widgets
+    if role == 'agent':
+        admin_doc = get_admin_collection().find_one({'admin_id': admin_id})
+        if not admin_doc:
+            return JsonResponse({'error': 'Agent not found'}, status=404)
+
+        assigned_widgets = admin_doc.get('assigned_widgets', [])
+        if isinstance(assigned_widgets, str):
+            assigned_widgets = [assigned_widgets]
+
+        query['widget_id'] = {'$in': assigned_widgets}
+
+    tags = list(tag_collection.find(query))
+    
+    # Convert ObjectId and datetime to string
+    for t in tags:
+        t['id'] = str(t['_id'])
+        t['_id'] = str(t['_id'])
+        t['created_at'] = str(t.get('created_at'))
+        if 'updated_at' in t:
+            t['updated_at'] = str(t['updated_at'])
+
+    return JsonResponse({
+        'success': True, 
+        'tags': tags,
+        'count': len(tags),
+        'room_id': room_id
+    }, status=200)
+
+
+
+@jwt_required
+@agent_or_superadmin_required
 def tag_detail(request, tag_id):
     if request.method != 'GET':
         return JsonResponse({'error': 'Invalid request method'}, status=400)
