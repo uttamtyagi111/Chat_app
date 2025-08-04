@@ -20,7 +20,7 @@
     z-index: 1000;
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: ${alignItems};
 }
 
 #attention-grabber {
@@ -169,7 +169,7 @@
     position: fixed;
     bottom: 90px;
     /* ${WIDGET_CONFIG.bottomOffset + WIDGET_CONFIG.bubbleSize + 10}px */
-    right: 20px;
+    ${WIDGET_CONFIG.position}: 20px;
     /* ${WIDGET_CONFIG.sideOffset}px or ${windowPosition} */
     width: 400px;
     /* ${WIDGET_CONFIG.windowWidth}px */
@@ -706,13 +706,13 @@
 @media (max-width: 500px) {
     #chat-window {
         width: calc(100vw - 30px);
-        right: 15px;
+        ${WIDGET_CONFIG.position}: 15px;
         max-height: 85vh;
         width: 250px;
     }
 
     #chat-bubble-container {
-        right: 15px;
+        ${WIDGET_CONFIG.position}: 15px;
     }
 
     .message {

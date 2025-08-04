@@ -185,6 +185,9 @@ async function initializeChatWidget() {
             const cssResponse = await fetch('http://localhost:8000/static/css/chat_widget.css');
             const cssText = await cssResponse.text();
 
+            // Determine align-items based on position
+            const alignItems = WIDGET_CONFIG.position === "left" ? "flex-start" : "flex-end";
+
             const processedCSS = cssText
                 .replace(/\${WIDGET_CONFIG\.themeColor}/g, WIDGET_CONFIG.themeColor)
                 .replace(/\${WIDGET_CONFIG\.bottomOffset}/g, WIDGET_CONFIG.bottomOffset)
@@ -196,7 +199,8 @@ async function initializeChatWidget() {
                 .replace(/\${WIDGET_CONFIG\.windowHeight}/g, WIDGET_CONFIG.windowHeight)
                 .replace(/\${WIDGET_CONFIG\.position}/g, WIDGET_CONFIG.position)
                 .replace(/\${bubblePosition}/g, bubblePosition)
-                .replace(/\${windowPosition}/g, windowPosition);
+                .replace(/\${windowPosition}/g, windowPosition)
+                .replace(/\${alignItems}/g, alignItems);
 
             const styleElement = document.createElement('style');
             styleElement.textContent = processedCSS;
@@ -754,6 +758,12 @@ async function initializeChatWidget() {
         return;
     }
 
+    if (data.type === 'message_seen' && data.status === "seen" && data.message_id && sentMessages[data.message_id]) {
+        console.log("👀 Updating message status to seen:", data.message_id);
+        updateMessageStatus(data.message_id, data.status);
+        return;
+    }
+
     // Handle message seen status updates
     if (data.status === "seen" && data.message_id && sentMessages[data.message_id]) {
         console.log("👀 Updating message status to seen:", data.message_id);
@@ -806,6 +816,7 @@ async function initializeChatWidget() {
         console.log(`📝 Displaying message from ${data.sender} with class: ${messageClass}`);
         console.log(`📝 Message content: "${data.message}"`);
         console.log(`📝 Message ID: ${data.message_id}`);
+        console.log(`📝 Shortcut ID: ${data.shortcut_id}`);
         
         // Always append the message - this was likely the main issue
         appendMessage(
@@ -817,7 +828,8 @@ async function initializeChatWidget() {
             data.message_id || `msg-${Date.now()}`, // Fallback message ID
             data.sender === "User" ? "delivered" : "delivered",
             data.timestamp,
-            data.suggested_replies || null
+            data.suggested_replies || null,
+            data.shortcut_id || null
         );
         
         console.log("✅ Message appended to UI");
@@ -871,7 +883,9 @@ async function initializeChatWidget() {
                 sender,
                 className,
                 hasMessage: !!message,
-                hasFile: !!fileUrl
+                hasFile: !!fileUrl,
+                // shortcutId, // Add this log
+                hasSuggestedReplies: !!(suggestedReplies && suggestedReplies.length > 0)
             });
 
             const div = document.createElement("div");
@@ -920,9 +934,11 @@ async function initializeChatWidget() {
             console.log(`✅ Message ${messageId} successfully added to DOM`);
 
             // Add suggested replies if provided
-            if (suggestedReplies && suggestedReplies.length > 0) {
+            if (suggestedReplies && suggestedReplies.length > 0 && sender !== "User") {
+                console.log(`💡 Showing ${suggestedReplies.length} suggested replies for message ${messageId}`);
                 showSuggestedReplies(suggestedReplies);
             }
+
 
             // Scroll to bottom
             elements.messagesDiv.scrollTop = elements.messagesDiv.scrollHeight;
@@ -1008,6 +1024,7 @@ async function initializeChatWidget() {
             const existingSuggested = elements.messagesDiv.querySelector('.suggested-replies');
             if (existingSuggested) {
                 existingSuggested.remove();
+                console.log("🗑️ Removed existing suggested replies");
             }
             
             const container = document.createElement("div");
@@ -1016,19 +1033,42 @@ async function initializeChatWidget() {
             replies.forEach(reply => {
                 const button = document.createElement("button");
                 button.textContent = reply;
+                button.style.cssText = `
+                    background: #007bff;
+                    color: white;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 20px;
+                    cursor: pointer;
+                    font-size: 14px;
+                    transition: background-color 0.2s;
+                `;
+                
+                button.addEventListener("mouseover", () => {
+                    button.style.backgroundColor = "#0056b3";
+                });
+                
+                button.addEventListener("mouseout", () => {
+                    button.style.backgroundColor = "#007bff";
+                });
                 button.addEventListener("click", () => {
+                    console.log(`💬 Suggested reply clicked: "${reply}"`);
                     if (elements.input) {
                         elements.input.value = reply;
                         sendMessage();
                         // Remove suggested replies after selection
                         container.remove();
+                        console.log("🗑️ Suggested replies removed after selection");
                     }
                 });
                 container.appendChild(button);
+                // console.log(`✅ Added suggested reply button ${index + 1}: "${reply}"`);
             });
             
             elements.messagesDiv.appendChild(container);
             elements.messagesDiv.scrollTop = elements.messagesDiv.scrollHeight;
+
+            console.log("✅ Suggested replies container added to DOM");
         }
 
         // Message sending
@@ -1054,6 +1094,13 @@ async function initializeChatWidget() {
             
             appendMessage("User", messageText, null, null, "user", messageId, "sent");
             elements.input.value = "";
+
+            // Remove any existing suggested replies when user sends a message
+            const existingSuggested = elements.messagesDiv.querySelector('.suggested-replies');
+            if (existingSuggested) {
+                existingSuggested.remove();
+                console.log("🗑️ Removed suggested replies after user message");
+            }
             
             // Reset typing state
             widgetState.isTyping = false;
