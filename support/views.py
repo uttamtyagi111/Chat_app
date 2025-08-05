@@ -7,19 +7,14 @@ from bson import ObjectId
 from authentication.utils import jwt_required, agent_or_superadmin_required
 from wish_bot.db import get_admin_collection, get_ticket_collection,get_tag_collection, get_agent_collection
 from wish_bot.db import get_shortcut_collection,get_trigger_collection,get_room_collection
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from authentication.utils import is_agent_assigned_to_widget
-import random
 from rest_framework.views import APIView
 from rest_framework import status
 from authentication.jwt_auth import JWTAuthentication 
 
 logger = logging.getLogger(__name__)
 
-def get_random_color():
-    colors = ['#FF5733', '#33FF57', '#3357FF', '#F39C12', '#9B59B6', '#1ABC9C']
-    return random.choice(colors)
 
 def ticket_list(request):
     tickets = list(get_ticket_collection().find())
@@ -176,21 +171,22 @@ def add_shortcut(request):
             if widget_id not in assigned_widgets:
                 return JsonResponse({'error': 'Unauthorized to add shortcut for this widget'}, status=403)
 
-        # ✅ Parse tags with color support
+        # ✅ Parse tags with color required from frontend
         tags_input = data.get('tags', [])
         tag_objs = []
+
         if isinstance(tags_input, list):
             for tag in tags_input:
                 if isinstance(tag, dict):
                     tag_name = tag.get('name', '').strip()
-                    tag_color = tag.get('color', '#007bff').strip()
-                else:
-                    tag_name = str(tag).strip()
-                    tag_color = '#007bff'
-                if tag_name:
+                    tag_color = tag.get('color', '').strip()
+                    if not tag_name or not tag_color:
+                        return JsonResponse({'error': 'Each tag must include non-empty "name" and "color"'}, status=400)
                     tag_objs.append({'name': tag_name, 'color': tag_color})
-        elif isinstance(tags_input, str):
-            tag_objs = [{'name': t.strip(), 'color': '#007bff'} for t in tags_input.split(',') if t.strip()]
+                else:
+                    return JsonResponse({'error': 'Each tag must be a dictionary with "name" and "color"'}, status=400)
+        else:
+            return JsonResponse({'error': 'Tags must be a list of objects'}, status=400)
 
         suggested_input = data.get('suggested_messages', [])
         suggested_messages = [m.strip() for m in suggested_input.split('\n')] if isinstance(suggested_input, str) else [m.strip() for m in suggested_input if m.strip()]
@@ -313,14 +309,14 @@ def edit_shortcut(request, shortcut_id):
                 for tag in tags_input:
                     if isinstance(tag, dict):
                         tag_name = tag.get('name', '').strip()
-                        tag_color = tag.get('color', '#007bff').strip()
-                    else:
-                        tag_name = str(tag).strip()
-                        tag_color = '#007bff'
-                    if tag_name:
+                        tag_color = tag.get('color', '').strip()
+                        if not tag_name or not tag_color:
+                            return JsonResponse({'error': 'Each tag must include non-empty "name" and "color"'}, status=400)
                         tag_objs.append({'name': tag_name, 'color': tag_color})
-            elif isinstance(tags_input, str):
-                tag_objs = [{'name': t.strip(), 'color': '#007bff'} for t in tags_input.split(',') if t.strip()]
+                    else:
+                        return JsonResponse({'error': 'Each tag must be a dictionary with "name" and "color"'}, status=400)
+            else:
+                return JsonResponse({'error': 'Tags must be a list of objects'}, status=400)
 
             new_tag_names = [t['name'] for t in tag_objs]
             update_doc['tags'] = new_tag_names
@@ -389,6 +385,7 @@ def edit_shortcut(request, shortcut_id):
         return JsonResponse({'error': 'Invalid JSON format'}, status=400)
     except Exception as e:
         return JsonResponse({'error': f'Unexpected server error: {str(e)}'}, status=500)
+
     
     
 @jwt_required
@@ -773,10 +770,10 @@ def edit_tag(request, tag_id):
             return JsonResponse({'error': f"Tag '{name}' already exists for the target widget"}, status=409)
 
         # Validate shortcut_id belongs to target widget
-        if shortcut_id:
-            shortcut = get_shortcut_collection().find_one({'shortcut_id': shortcut_id})
-            if not shortcut or shortcut.get('widget_id') != target_widget_id:
-                return JsonResponse({'error': 'Invalid shortcut_id or widget mismatch'}, status=403)
+        # if shortcut_id:
+        #     shortcut = get_shortcut_collection().find_one({'shortcut_id': shortcut_id})
+        #     if not shortcut or shortcut.get('widget_id') != target_widget_id:
+        #         return JsonResponse({'error': 'Invalid shortcut_id or widget mismatch'}, status=403)
 
         # if room_id:
         #     room = get_room_collection().find_one({'room_id': room_id})
