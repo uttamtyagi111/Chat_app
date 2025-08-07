@@ -69,7 +69,7 @@ def get_widget(request, widget_id=None):
         admin_id = user.get("admin_id")
 
         widget_collection = get_widget_collection()
-        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "https://chat.wishgeekstechserve.com/api"
 
         def format_widget(widget):
             # Generate widget code if not stored in DB (for backward compatibility)
@@ -380,7 +380,7 @@ def create_widget(request):
         )
 
         # Determine base domain for embed code
-        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003"
+        base_domain = "http://localhost:8000" if request.get_host().startswith("localhost") else "https://chat.wishgeekstechserve.com/api"
         direct_chat_link = f"{base_domain}/chat/direct-chat/{widget_id}/"
 
         # Final widget document (now includes widget_code)
@@ -633,7 +633,7 @@ def direct_chat(request, widget_id):
 
     context = {
         "widget_id": widget_id,
-        "base_domain": "http://localhost:8000" if request.get_host().startswith("localhost") else "http://208.87.134.149:8003",
+        "base_domain": "http://localhost:8000" if request.get_host().startswith("localhost") else "https://chat.wishgeekstechserve.com/api",
     }
     return render(request, "chat/direct_chat.html", context)
 
@@ -2086,7 +2086,7 @@ def test_widget_view(request):
     ip_info = None
     error_message = None
     
-    # Handle local/localhost IPs
+    # Handle local/ IPs
     if not test_ip or test_ip in ['127.0.0.1', 'localhost', '::1']:
         ip_info = {
             'ip': test_ip,

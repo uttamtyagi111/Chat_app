@@ -1,8 +1,10 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
+    <meta charset="UTF-8">
     <title>Test Chat Widget</title>
+
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -72,35 +74,29 @@
         button:hover {
             background: #0056b3;
         }
-
-            {
-            % endcomment %
-        }
     </style>
-    {% load static %}
+
+    {% load static %} <!-- Needed only if you use {% static %} for local resources -->
+
 </head>
 
 <body>
     <h1>Test Chat Widget</h1>
     <div class="container">
 
-        <!-- Correct way to include static JS file -->
+        <!-- Chat Widget JS from your domain -->
+        <script src="https://chat.wishgeekstechserve.com/api/static/js/chat_widget2.js?widget_id=c516c9c5-b947"></script>
 
-        <!-- Start of Chat Widget Script -->
-        <script src="http://localhost:8000/static/js/chat_widget2.js?widget_id=c516c9c5-b947"></script>
-        <!-- End of Chat Widget Script -->
+    </div>
+
+    <script>
+        console.log("Page loaded from:", window.location.href);
+        console.log("Chat widget script loaded successfully.");
+
+        // You can add more test logic here
+        // Example: Hook into widget-loaded event if you emit one
+        // document.addEventListener('chatWidgetLoaded', () => console.log('Chat widget is ready'));
+    </script>
 </body>
 
 </html>
-<script>
-    // This script is for testing purposes only
-    console.log("Chat widget script loaded successfully.");
-
-    {% comment %} console.log("Widget ID:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color')); {% endcomment %}
-    {% comment %} console.log("Theme Color:", document.querySelector('script[data-theme-color]').getAttribute('data-theme-color'));
-    console.log("Logo URL:", document.querySelector('script[data-logo-url]').getAttribute('data-logo-url'));
-    console.log("Position:", document.querySelector('script[data-position]').getAttribute('data-position')); {% endcomment %}
-    // You can also add event listeners to test interactions with the widget.
-
-
-</script>

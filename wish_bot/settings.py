@@ -32,10 +32,12 @@ ALLOWED_HOSTS = [
     "127.0.0.1",
     "208.87.134.149",
     "wish-bot.onrender.com",
+    "chat.wishgeekstechserve.com",
 ]
 
 CSRF_COOKIE_SECURE = True 
 CSRF_TRUSTED_ORIGINS = [
+    "https://chat.wishgeekstechserve.com",
     "https://wish-bot.onrender.com",
     "http://localhost:5173",
     "http://localhost:5500",
@@ -47,8 +49,10 @@ CSRF_TRUSTED_ORIGINS = [
 #     "http://localhost:5173",
 #     "http://127.0.0.1:5500",
 #     "http://127.0.0.1:3000",
-#     "http://208.87.134.149"
+#     "http://208.87.134.149",
+#     "https://chat.wishgeekstechserve.com",
 # ]
+
 CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOW_CREDENTIALS = True
