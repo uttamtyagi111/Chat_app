@@ -429,6 +429,7 @@
     cursor: pointer;
     transition: all 0.2s ease;
     color: #495057;
+    z-index: 1;
 }
 
 .suggested-replies button:hover {

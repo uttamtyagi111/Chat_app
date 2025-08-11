@@ -768,10 +768,10 @@ async function initializeChatWidget() {
     }
 
     // Handle suggested replies
-    if (data.suggested_replies && data.suggested_replies.length > 0) {
-        console.log("💡 Showing suggested replies:", data.suggested_replies);
-        showSuggestedReplies(data.suggested_replies);
-    }
+    // if (data.suggested_replies && data.suggested_replies.length > 0) {
+    //     console.log("💡 Showing suggested replies:", data.suggested_replies);
+    //     showSuggestedReplies(data.suggested_replies);
+    // }
 
     // *** MAIN MESSAGE HANDLING - This is the critical part! ***
     // Handle regular messages (including Agent messages)
@@ -840,7 +840,7 @@ async function initializeChatWidget() {
 }
 
         
-        function appendMessage(sender, message, fileUrl, fileName, className, messageId, status, timestamp, suggestedReplies = null) {
+        function appendMessage(sender, message, fileUrl, fileName, className, messageId, status, timestamp, suggestedReplies = null, shortcutId = null) {
             if (!elements.messagesDiv) {
                 console.error("❌ messagesDiv not found, cannot append message");
                 return;
@@ -866,7 +866,7 @@ async function initializeChatWidget() {
                 className,
                 hasMessage: !!message,
                 hasFile: !!fileUrl,
-                // shortcutId, // Add this log
+                shortcutId: shortcutId, // Add this log
                 hasSuggestedReplies: !!(suggestedReplies && suggestedReplies.length > 0)
             });
 
@@ -918,7 +918,10 @@ async function initializeChatWidget() {
             // Add suggested replies if provided
             if (suggestedReplies && suggestedReplies.length > 0 && sender !== "User") {
                 console.log(`💡 Showing ${suggestedReplies.length} suggested replies for message ${messageId}`);
-                showSuggestedReplies(suggestedReplies);
+                // Use setTimeout to ensure DOM is fully updated
+                setTimeout(() => {
+                    showSuggestedReplies(suggestedReplies);
+                }, 50);
             }
 
 
@@ -932,14 +935,14 @@ async function initializeChatWidget() {
             }
 
             // Force a small delay to ensure DOM update
-            setTimeout(() => {
-                const addedElement = document.getElementById(`msg-${messageId}`);
-                if (addedElement) {
-                    console.log("✅ Confirmed message is in DOM:", messageId);
-                } else {
-                    console.error("❌ Message not found in DOM after append:", messageId);
-                }
-            }, 10);
+            // setTimeout(() => {
+            //     const addedElement = document.getElementById(`msg-${messageId}`);
+            //     if (addedElement) {
+            //         console.log("✅ Confirmed message is in DOM:", messageId);
+            //     } else {
+            //         console.error("❌ Message not found in DOM after append:", messageId);
+            //     }
+            // }, 10);
         }
 
 
