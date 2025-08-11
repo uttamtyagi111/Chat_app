@@ -425,7 +425,15 @@ def create_widget(request):
 def generate_widget_code(widget_id, request, theme_color="#ff6600", logo_url=None, position="right"):
     # Determine base domain dynamically
     host = request.get_host()
-    scheme = "https" if request.is_secure() else "http"
+    
+    # Force HTTPS for production domains or if X-Forwarded-Proto header indicates HTTPS
+    is_https = (
+        request.is_secure() or 
+        request.META.get('HTTP_X_FORWARDED_PROTO') == 'https' or
+        not host.startswith('localhost')  # Force HTTPS for non-localhost
+    )
+    
+    scheme = "https" if is_https else "http"
     base_domain = f"{scheme}://{host}"
 
     # Script source - hosted JS file
@@ -434,13 +442,12 @@ def generate_widget_code(widget_id, request, theme_color="#ff6600", logo_url=Non
     # Logo fallback
     if not logo_url:
         logo_url = f"{base_domain}/static/images/default_logo.png"
-        
+
     return f"""
 <!-- Start of Chat Widget Script -->
 <script
    src="{script_url}?widget_id={widget_id}"></script>
-<!-- End of Chat Widget Script -->
-"""
+<!-- End of Chat Widget Script -->"""
 
 # @csrf_exempt
 # @require_POST

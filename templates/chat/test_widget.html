@@ -76,8 +76,6 @@
         }
     </style>
 
-    {% load static %} <!-- Needed only if you use {% static %} for local resources -->
-
 </head>
 
 <body>
@@ -85,17 +83,13 @@
     <div class="container">
 
         <!-- Chat Widget JS from your domain -->
-        <script src="https://chat.wishgeekstechserve.com/api/static/js/chat_widget2.js?widget_id=c516c9c5-b947"></script>
+        <script src="https://chat.wishgeekstechserve.com/static/js/chat_widget2.js?widget_id=c516c9c5-b947"></script>
 
     </div>
 
     <script>
         console.log("Page loaded from:", window.location.href);
         console.log("Chat widget script loaded successfully.");
-
-        // You can add more test logic here
-        // Example: Hook into widget-loaded event if you emit one
-        // document.addEventListener('chatWidgetLoaded', () => console.log('Chat widget is ready'));
     </script>
 </body>
 

@@ -42,7 +42,7 @@ def health_check(request):
         'uptime': '99.9%'
     }
 
-    return render(request, 'authentication/health.html', context)
+    return render(request, 'chat/widget.html', context)
 
 
 

@@ -35,7 +35,7 @@ ALLOWED_HOSTS = [
     "chat.wishgeekstechserve.com",
 ]
 
-CSRF_COOKIE_SECURE = True 
+CSRF_COOKIE_SECURE = True
 CSRF_TRUSTED_ORIGINS = [
     "https://chat.wishgeekstechserve.com",
     "https://wish-bot.onrender.com",
@@ -147,7 +147,7 @@ REST_FRAMEWORK = {
 }
 
 from datetime import timedelta
-SECRET_KEY = os.getenv('SECRET_KEY') 
+SECRET_KEY = os.getenv('SECRET_KEY')
 
 # SUPERADMIN_SECRET_KEY = os.getenv('SUPERADMIN_SECRET_KEY', 'your-super-secret-key')
 
@@ -190,7 +190,7 @@ CHANNEL_LAYERS = {
     },
 }
 
-# Cache configuration 
+# Cache configuration
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
@@ -224,6 +224,16 @@ REPLY_TO_EMAIL = os.getenv('REPLY_TO_EMAIL', DEFAULT_FROM_EMAIL)
 # Email timeout settings
 EMAIL_TIMEOUT = 30
 
+
+#### THIS SHOWS ERROR IN PRODUCTION NEEDED MUCH CONFIG####
+# SECURE_SSL_REDIRECT = True
+# SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+# SECURE_CONTENT_TYPE_NOSNIFF = True
+# SESSION_COOKIE_SECURE = True
+# X_FRAME_OPTIONS = "DENY"
+# SECURE_HSTS_SECONDS = 31536000
+# SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+# SECURE_HSTS_PRELOAD = True
 
 SESSION_COOKIE_AGE = 1800  # 30 minutes
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
@@ -277,7 +287,7 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, 'static'),
 ]
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') 
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 
 # Default primary key field type

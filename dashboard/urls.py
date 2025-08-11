@@ -32,7 +32,9 @@ urlpatterns = [
     # # Global Conversation URLs
     path('conversations/', views.conversation_list, name='conversation-list'),
     path('conversations/<str:room_id>/', views.chat_room_view, name='chat_room_view'),
-    
+
+    ## Last message
+    path('last-message/<str:room_id>/', views.get_last_message, name='get_last_message'),
     
         # Additional endpoints for WebSocket-like functionality
     path('api/contacts/', contact_list_api, name='contact-list-api'),

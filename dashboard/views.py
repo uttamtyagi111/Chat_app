@@ -855,6 +855,165 @@ def chat_room_view(request, room_id):  # Changed from enhanced_chat_room_view
         }, status=500)
 
 
+
+@jwt_required
+def get_last_message(request, room_id):
+    """API to get the last message with timestamp and sender information for a specific room"""
+    try:
+        user = request.jwt_user
+        role = user.get("role")
+        admin_id = user.get("admin_id")
+
+        chat_collection = get_chat_collection()
+        rooms_collection = get_room_collection()
+        agents_collection = get_admin_collection()
+        contact_collection = get_contact_collection()
+
+        # Fetch the room to verify it exists and get widget_id
+        room = rooms_collection.find_one({"room_id": room_id})
+        if not room:
+            return JsonResponse({
+                'success': False,
+                'error': 'Room not found',
+                'room_id': room_id
+            }, status=404)
+
+        widget_id = room.get("widget_id")
+
+        # Access control based on role
+        if role == "agent":
+            # Agent access check - only assigned widgets
+            agent = agents_collection.find_one({"admin_id": admin_id})
+            if not agent:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Agent not found',
+                    'room_id': room_id
+                }, status=403)
+                
+            assigned_widgets = agent.get("assigned_widgets", [])
+            if widget_id not in assigned_widgets:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Access denied. You are not allowed to access this room.',
+                    'room_id': room_id
+                }, status=403)
+                
+        elif role == "superadmin":
+            # Superadmin has access to all rooms (no restrictions)
+            pass
+        else:
+            # Unknown role
+            return JsonResponse({
+                'success': False,
+                'error': 'Invalid role. Only agent and superadmin roles are supported.',
+                'room_id': room_id
+            }, status=403)
+
+        # Fetch the last message for the room
+        last_message = chat_collection.find_one(
+            {'room_id': room_id}, 
+            sort=[('timestamp', -1)]  # Sort by timestamp descending to get the latest
+        )
+
+        if not last_message:
+            return JsonResponse({
+                'success': True,
+                'message': 'No messages found in this room',
+                'room_id': room_id,
+                'last_message': None
+            })
+
+        # Convert ObjectId to string
+        last_message['_id'] = str(last_message['_id'])
+        
+        # Handle timestamp conversion
+        timestamp = last_message.get('timestamp')
+        if isinstance(timestamp, datetime):
+            timestamp = timestamp.isoformat()
+
+        # Get sender information based on your message format
+        sender = last_message.get('sender', 'Unknown')
+        contact_id = last_message.get('contact_id')
+        
+        # Determine sender info based on the sender field and contact_id
+        sender_info = {}
+        
+        if sender == 'User' and contact_id:
+            # This is a message from a contact/user
+            contact = contact_collection.find_one({'contact_id': contact_id})
+            if contact:
+                sender_info = {
+                    'type': 'contact',
+                    'id': contact_id,
+                    'name': contact.get('name', 'Unknown Contact'),
+                    'email': contact.get('email', ''),
+                    'phone': contact.get('phone', '')
+                }
+            else:
+                sender_info = {
+                    'type': 'contact',
+                    'id': contact_id,
+                    'name': 'Unknown Contact'
+                }
+        elif sender != 'User':
+            # This might be an agent message
+            # Try to find agent by name or other identifier
+            agent = agents_collection.find_one({'name': sender})
+            if agent:
+                sender_info = {
+                    'type': 'agent',
+                    'id': agent.get('admin_id'),
+                    'name': agent.get('name', sender),
+                    'email': agent.get('email', ''),
+                    'is_online': agent.get('is_online', False)
+                }
+            else:
+                sender_info = {
+                    'type': 'agent',
+                    'id': None,
+                    'name': sender
+                }
+        else:
+            # Default case
+            sender_info = {
+                'type': 'unknown',
+                'id': contact_id,
+                'name': sender
+            }
+
+        # Prepare the response with last message details matching your format
+        response_data = {
+            'success': True,
+            'room_id': room_id,
+            'last_message': {
+                'message_id': last_message.get('message_id', str(last_message['_id'])),
+                'content': last_message.get('message', ''),
+                'timestamp': timestamp,
+                'sender': sender_info,
+                'delivered': last_message.get('delivered', False),
+                'seen': last_message.get('seen', False),
+                'seen_at': last_message.get('seen_at'),
+                'file_url': last_message.get('file_url', ''),
+                'file_name': last_message.get('file_name', ''),
+                'is_shortcut': last_message.get('is_shortcut', False),
+                'shortcut_id': last_message.get('shortcut_id'),
+                'suggested_replies': last_message.get('suggested_replies', []),
+                'created_at': last_message.get('created_at'),
+                'updated_at': last_message.get('updated_at')
+            }
+        }
+
+        return JsonResponse(response_data)
+
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': f"Failed to get last message: {str(e)}",
+            'room_id': room_id
+        }, status=500)
+
+
 @jwt_required
 def contact_list_api(request):
     """API to fetch contacts with filtering"""
