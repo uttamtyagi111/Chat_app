@@ -122,11 +122,11 @@ async function initializeChatWidget() {
 
         const WIDGET_CONFIG = {
             apiUrl: isLocal ? "http://localhost:8000/chat/user-chat/" : "https://chat.wishgeekstechserve.com/api/chat/user-chat/",
-            wsUrl: isLocal ? "ws://localhost:8000/ws/chat/" : "wss://chat.wishgeekstechserve.com/api/ws/chat/",
+            wsUrl: isLocal ? "ws://localhost:8000/ws/chat/" : "wss://chat.wishgeekstechserve.com/ws/chat/",
             fileUploadUrl: isLocal ? "http://localhost:8000/chat/user-chat/upload-file/" : "https://chat.wishgeekstechserve.com/api/chat/user-chat/upload-file/",
             historyUrl: isLocal ? "http://localhost:8000/chat/user-chat/history/" : "https://chat.wishgeekstechserve.com/api/chat/user-chat/history/",
-            cssUrl: isLocal ? "http://localhost:8000/static/css/chat_widget.css" : "https://chat.wishgeekstechserve.com/api/static/css/chat_widget.css",
-            htmlUrl: isLocal ? "http://localhost:8000/static/html/chat-widget.html" : "https://chat.wishgeekstechserve.com/api/static/html/chat-widget.html",
+            cssUrl: isLocal ? "http://localhost:8000/static/css/chat_widget.css" : "https://chat.wishgeekstechserve.com/static/css/chat_widget.css",
+            htmlUrl: isLocal ? "http://localhost:8000/static/html/chat-widget.html" : "https://chat.wishgeekstechserve.com/static/html/chat-widget.html",
             position: settings.position,
             chatTitle: "Chat with Us",
             placeholder: "Type a message...",
