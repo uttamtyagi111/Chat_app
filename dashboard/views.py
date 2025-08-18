@@ -552,33 +552,214 @@ logger = logging.getLogger(__name__)
 #             'room_id': room_id
 #         }, status=500)
 
+# from django.http import JsonResponse
+# from django.views.decorators.csrf import csrf_exempt
+# from django.utils.decorators import method_decorator
+# from django.views import View
+# from datetime import datetime
+# from pymongo import ASCENDING, DESCENDING
+# import json
+# from wish_bot.db import (
+#     get_room_collection,
+#     get_chat_collection,
+#     get_contact_collection,
+#     get_admin_collection,
+#     get_trigger_collection,
+#     get_widget_collection
+# )
+# from utils.redis_client import redis_client
+#   # Assuming you have this decorator
+
+
+# @jwt_required
+# def conversation_list(request):  # Changed from enhanced_conversation_list
+#     """Enhanced version of your conversation_list with additional WebSocket-like data"""
+#     try:
+#         user = request.jwt_user
+#         role = user.get('role')
+#         admin_id = user.get('admin_id')
+
+#         assigned_widgets = []
+#         if role == 'agent':
+#             user_record = get_admin_collection().find_one({'admin_id': admin_id})
+#             if user_record:
+#                 assigned_widgets = user_record.get('assigned_widgets', [])
+#                 if isinstance(assigned_widgets, str):
+#                     assigned_widgets = [assigned_widgets]
+
+#         room_collection = get_room_collection()
+#         contact_collection = get_contact_collection()
+
+#         pipeline = []
+
+#         # Role-based filter
+#         if role == 'agent':
+#             pipeline.append({
+#                 "$match": {
+#                     "widget_id": {"$in": assigned_widgets}
+#                 }
+#             })
+
+#         pipeline += [
+#             {"$sort": {"created_at": DESCENDING}},
+
+#             # Join widget info
+#             {
+#                 "$lookup": {
+#                     "from": "widgets",
+#                     "localField": "widget_id",
+#                     "foreignField": "widget_id",
+#                     "as": "widget"
+#                 }
+#             },
+#             {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
+
+#             # Join contact info
+#             {
+#                 "$lookup": {
+#                     "from": "contacts",
+#                     "localField": "contact_id",
+#                     "foreignField": "contact_id",
+#                     "as": "contact"
+#                 }
+#             },
+#             {"$unwind": {"path": "$contact", "preserveNullAndEmptyArrays": True}},
+
+#             # Get last message, last timestamp, total messages from messages array
+#             {
+#                 "$addFields": {
+#                     "total_messages": { "$size": { "$ifNull": ["$messages", []] } },
+#                     "last_message_obj": {
+#                         "$arrayElemAt": [
+#                             { "$slice": ["$messages", -1] },
+#                             0
+#                         ]
+#                     }
+#                 }
+#             },
+
+#             # Lookup agent details from admin collection
+#             {
+#                 "$lookup": {
+#                     "from": "admins",
+#                     "localField": "assigned_agent",
+#                     "foreignField": "admin_id",
+#                     "as": "agent"
+#                 }
+#             },
+#             {"$unwind": {"path": "$agent", "preserveNullAndEmptyArrays": True}},
+
+#             {
+#                 "$project": {
+#                     "_id": 0,
+#                     "room_id": 1,
+#                     "contact_id": 1,
+#                     "assigned_agent": 1,
+#                     "tags": 1,
+#                     "ip": "$user_location.user_ip",
+#                     "widget_id": 1,
+#                     "is_active": 1,
+#                     "created_at": 1,
+#                     "updated_at": 1,
+#                     "user_location": 1,
+#                     "total_messages": 1,
+
+#                     "last_message": "$last_message_obj.message",
+#                     "last_timestamp": "$last_message_obj.timestamp",
+
+#                     "widget": {
+#                         "widget_id": "$widget.widget_id",
+#                         "name": "$widget.name",
+#                         "is_active": "$widget.is_active",
+#                         "created_at": "$widget.created_at"
+#                     },
+
+#                     "agent": {
+#                         "admin_id": "$agent.admin_id",
+#                         "name": "$agent.name",
+#                         "email": "$agent.email",
+#                         "role": "$agent.role",
+#                         "is_online": "$agent.is_online",
+#                         "organization": "$agent.organization"
+#                     },
+
+#                     # Contact information
+#                     "contact": {
+#                         "contact_id": "$contact.contact_id",
+#                         "name": "$contact.name",
+#                         "email": "$contact.email",
+#                         "phone": "$contact.phone"
+#                     }
+#                 }
+#             },
+
+#             { "$sort": { "last_timestamp": DESCENDING } }
+#         ]
+
+#         results = list(room_collection.aggregate(pipeline))
+
+#         # Add unread counts from Redis (like WebSocket does)
+#         for room in results:
+#             room_id = room['room_id']
+#             unread_key = f'unread:{room_id}'
+#             room['unread_count'] = int(redis_client.get(unread_key) or 0)
+            
+#             # Add typing status from Redis
+#             typing_key = f'typing:{room_id}:*'
+#             typing_users = []
+#             for key in redis_client.scan_iter(match=typing_key):
+#                 typing_content = redis_client.get(key)
+#                 if typing_content:
+#                     user_id = key.split(':')[-1]
+#                     typing_users.append({
+#                         'user_id': user_id,
+#                         'content': typing_content
+#                     })
+#             room['typing_users'] = typing_users
+
+#             # Format datetime fields
+#             for key in ['created_at', 'updated_at', 'last_timestamp']:
+#                 if key in room and isinstance(room[key], datetime):
+#                     room[key] = room[key].isoformat()
+
+#             if room.get("widget") and isinstance(room["widget"].get("created_at"), datetime):
+#                 room["widget"]["created_at"] = room["widget"]["created_at"].isoformat()
+
+#         return JsonResponse({
+#             "rooms": results,
+#             "total_count": len(results)
+#         }, status=200)
+
+#     except Exception as e:
+#         return JsonResponse({
+#             "error": f"Error fetching rooms: {str(e)}",
+#             "rooms": [],
+#             "total_count": 0
+#         }, status=500)
+
+
 from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from django.views import View
+from django.http import JsonResponse
 from datetime import datetime
-from pymongo import ASCENDING, DESCENDING
-import json
+from pymongo import DESCENDING
 from wish_bot.db import (
     get_room_collection,
-    get_chat_collection,
-    get_contact_collection,
     get_admin_collection,
     get_trigger_collection,
-    get_widget_collection
+    get_contact_collection,
 )
 from utils.redis_client import redis_client
-  # Assuming you have this decorator
-
-
 @jwt_required
-def conversation_list(request):  # Changed from enhanced_conversation_list
-    """Enhanced version of your conversation_list with additional WebSocket-like data"""
+def conversation_list(request):
+    """Conversation list with pagination and limited contact info"""
     try:
         user = request.jwt_user
         role = user.get('role')
         admin_id = user.get('admin_id')
-
+        # :small_blue_diamond: Pagination params
+        page = int(request.GET.get("page", 1))
+        page_size = int(request.GET.get("page_size", 20))  # default 20
+        skip = (page - 1) * page_size
         assigned_widgets = []
         if role == 'agent':
             user_record = get_admin_collection().find_one({'admin_id': admin_id})
@@ -586,12 +767,8 @@ def conversation_list(request):  # Changed from enhanced_conversation_list
                 assigned_widgets = user_record.get('assigned_widgets', [])
                 if isinstance(assigned_widgets, str):
                     assigned_widgets = [assigned_widgets]
-
         room_collection = get_room_collection()
-        contact_collection = get_contact_collection()
-
         pipeline = []
-
         # Role-based filter
         if role == 'agent':
             pipeline.append({
@@ -599,10 +776,8 @@ def conversation_list(request):  # Changed from enhanced_conversation_list
                     "widget_id": {"$in": assigned_widgets}
                 }
             })
-
         pipeline += [
             {"$sort": {"created_at": DESCENDING}},
-
             # Join widget info
             {
                 "$lookup": {
@@ -613,7 +788,6 @@ def conversation_list(request):  # Changed from enhanced_conversation_list
                 }
             },
             {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
-
             # Join contact info
             {
                 "$lookup": {
@@ -624,21 +798,19 @@ def conversation_list(request):  # Changed from enhanced_conversation_list
                 }
             },
             {"$unwind": {"path": "$contact", "preserveNullAndEmptyArrays": True}},
-
-            # Get last message, last timestamp, total messages from messages array
+            # Get last message, last timestamp, total messages
             {
                 "$addFields": {
-                    "total_messages": { "$size": { "$ifNull": ["$messages", []] } },
+                    "total_messages": {"$size": {"$ifNull": ["$messages", []]}},
                     "last_message_obj": {
                         "$arrayElemAt": [
-                            { "$slice": ["$messages", -1] },
+                            {"$slice": ["$messages", -1]},
                             0
                         ]
                     }
                 }
             },
-
-            # Lookup agent details from admin collection
+            # Lookup agent details
             {
                 "$lookup": {
                     "from": "admins",
@@ -648,7 +820,6 @@ def conversation_list(request):  # Changed from enhanced_conversation_list
                 }
             },
             {"$unwind": {"path": "$agent", "preserveNullAndEmptyArrays": True}},
-
             {
                 "$project": {
                     "_id": 0,
@@ -663,17 +834,14 @@ def conversation_list(request):  # Changed from enhanced_conversation_list
                     "updated_at": 1,
                     "user_location": 1,
                     "total_messages": 1,
-
                     "last_message": "$last_message_obj.message",
                     "last_timestamp": "$last_message_obj.timestamp",
-
                     "widget": {
                         "widget_id": "$widget.widget_id",
                         "name": "$widget.name",
                         "is_active": "$widget.is_active",
                         "created_at": "$widget.created_at"
                     },
-
                     "agent": {
                         "admin_id": "$agent.admin_id",
                         "name": "$agent.name",
@@ -682,32 +850,29 @@ def conversation_list(request):  # Changed from enhanced_conversation_list
                         "is_online": "$agent.is_online",
                         "organization": "$agent.organization"
                     },
-
-                    # Contact information
+                    # :white_tick: Limited contact fields only
                     "contact": {
                         "contact_id": "$contact.contact_id",
                         "name": "$contact.name",
-                        "email": "$contact.email",
-                        "phone": "$contact.phone"
+                        "email": "$contact.email"
                     }
                 }
             },
-
-            { "$sort": { "last_timestamp": DESCENDING } }
+            {"$sort": {"last_timestamp": DESCENDING}},
+            # :small_blue_diamond: Pagination
+            {"$skip": skip},
+            {"$limit": page_size}
         ]
-
         results = list(room_collection.aggregate(pipeline))
-
-        # Add unread counts from Redis (like WebSocket does)
+        # Add unread counts + typing status
         for room in results:
             room_id = room['room_id']
             unread_key = f'unread:{room_id}'
             room['unread_count'] = int(redis_client.get(unread_key) or 0)
-            
-            # Add typing status from Redis
+            # Typing status
             typing_key = f'typing:{room_id}:*'
             typing_users = []
-            for key in redis_client.scan_iter(match=typing_key):
+            for key in redis_client.scan_iter(match=typing_key, count=10):
                 typing_content = redis_client.get(key)
                 if typing_content:
                     user_id = key.split(':')[-1]
@@ -716,27 +881,29 @@ def conversation_list(request):  # Changed from enhanced_conversation_list
                         'content': typing_content
                     })
             room['typing_users'] = typing_users
-
             # Format datetime fields
             for key in ['created_at', 'updated_at', 'last_timestamp']:
                 if key in room and isinstance(room[key], datetime):
                     room[key] = room[key].isoformat()
-
             if room.get("widget") and isinstance(room["widget"].get("created_at"), datetime):
                 room["widget"]["created_at"] = room["widget"]["created_at"].isoformat()
-
+        # Total count for pagination UI
+        total_count = room_collection.count_documents(
+            {"widget_id": {"$in": assigned_widgets}} if role == "agent" else {}
+        )
         return JsonResponse({
             "rooms": results,
-            "total_count": len(results)
+            "total_count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total_count + page_size - 1) // page_size
         }, status=200)
-
     except Exception as e:
         return JsonResponse({
             "error": f"Error fetching rooms: {str(e)}",
             "rooms": [],
             "total_count": 0
         }, status=500)
-
 
 @jwt_required
 def chat_room_view(request, room_id):  # Changed from enhanced_chat_room_view
