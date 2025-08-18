@@ -1,3 +1,4 @@
+from django.conf import settings
 from dotenv import load_dotenv
 import os
 from pymongo.mongo_client import MongoClient
@@ -27,40 +28,41 @@ def get_mongo_client():
             raise
     return _mongo_client
 
+_redis_client = None
 
 def get_redis_client():
     global _redis_client
     if _redis_client is None:
-        redis_url = os.getenv('REDIS_URL')
+        redis_url = getattr(settings, 'REDIS_URL', None)
         try:
             if redis_url:
-                # Use REDIS_URL (internal for Render, external for local)
+                # If using TLS, change to rediss:// in settings
                 _redis_client = redis.from_url(redis_url, decode_responses=True)
             else:
-                # Fallback to localhost for local development
+                # Fallback to basic settings
                 _redis_client = redis.StrictRedis(
-                    host='localhost',
-                    port=6379,
+                    host=getattr(settings, 'REDIS_HOST', 'localhost'),
+                    port=int(getattr(settings, 'REDIS_PORT', 6379)),
                     db=0,
                     decode_responses=True
                 )
-            # Test the connection
             _redis_client.ping()
             print("Connected to Redis!")
         except redis.ConnectionError as e:
             print(f"Redis connection error: {e}")
             if "No such host" in str(e):
-                print("Error: Redis hostname not found. Ensure REDIS_URL is correct and accessible (e.g., internal URL for Render, external URL for local).")
+                print("Error: Redis hostname not found. Ensure REDIS_URL is correct.")
             elif "SSL" in str(e):
-                print("Error: SSL/TLS issue. Ensure REDIS_URL uses 'rediss://' for external connections and your environment supports SSL.")
+                print("Error: SSL/TLS issue. Use rediss:// for TLS and verify SSL support.")
             _redis_client = None
             raise
         except redis.AuthenticationError as e:
             print(f"Redis authentication error: {e}")
-            print("Error: Check username and password in REDIS_URL (e.g., rediss://username:password@host:port).")
+            print("Error: Check username and password in REDIS_URL.")
             _redis_client = None
             raise
     return _redis_client
+
 
 def find_duplicates(collection, field):
     duplicates = collection.aggregate([
@@ -294,7 +296,6 @@ def get_user_collection():
 
 #     return collection
 
-
 def get_contact_collection():
     client = get_mongo_client()
     db = client['wish_bot_db']
@@ -302,38 +303,52 @@ def get_contact_collection():
 
     existing_indexes = collection.index_information()
 
-    # Ensure unique index on contact_id
-    if 'contact_id_1' in existing_indexes:
-        if not existing_indexes['contact_id_1'].get('unique', False):
-            print("Dropping non-unique contact_id_1 index...")
-            collection.drop_index('contact_id_1')
-            remove_duplicates(collection, 'contact_id')
-            collection.create_index([('contact_id', 1)], unique=True, name='contact_id_1')
-    else:
-        remove_duplicates(collection, 'contact_id')
-        collection.create_index([('contact_id', 1)], unique=True, name='contact_id_1')
+    def create_partial_unique_index(field_name):
+        index_name = f"{field_name}_1"
+        if index_name in existing_indexes:
+            if not existing_indexes[index_name].get('unique', False):
+                collection.drop_index(index_name)
+                remove_duplicates(collection, field_name)
+                collection.create_index(
+                    [(field_name, 1)],
+                    unique=True,
+                    name=index_name,
+                    partialFilterExpression={
+                        field_name: {'$exists': True, '$type': 'string'}
+                    }
+                )
+        else:
+            remove_duplicates(collection, field_name)
+            collection.create_index(
+                [(field_name, 1)],
+                unique=True,
+                name=index_name,
+                partialFilterExpression={
+                    field_name: {'$exists': True, '$type': 'string'}
+                }
+            )
 
-    # ✅ Unique index on email only
-    if 'email_1' in existing_indexes:
-        if not existing_indexes['email_1'].get('unique', False):
-            collection.drop_index('email_1')
-            remove_duplicates(collection, 'email')
-            collection.create_index([('email', 1)], unique=True, name='email_1')
-    else:
-        remove_duplicates(collection, 'email')
-        collection.create_index([('email', 1)], unique=True, name='email_1')
+    # 🔒 Enforce uniqueness only when field has a value
+    unique_fields = [
+        'contact_id',
+        'email',
+        'name',
+        'phone',
+        'secondary_email',
+        'address'
+    ]
 
-    # Optional index on name (non-unique, searchable)
-    if 'name_1' not in existing_indexes:
-        collection.create_index([('name', 1)], unique=False, name='name_1')
+    for field in unique_fields:
+        create_partial_unique_index(field)
 
-    # Timestamps
+    # 📅 Timestamps indexes
     if 'created_at_-1' not in existing_indexes:
         collection.create_index([('created_at', -1)], name='created_at_-1')
     if 'updated_at_-1' not in existing_indexes:
         collection.create_index([('updated_at', -1)], name='updated_at_-1')
 
     return collection
+
 
 
 def get_agent_collection():

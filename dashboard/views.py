@@ -1,7 +1,12 @@
 from ast import Is
 from ctypes.wintypes import tagSIZE
+from operator import add
 import token
 import traceback
+from datetime import datetime
+from pymongo.errors import DuplicateKeyError
+from rest_framework.response import Response
+from rest_framework import status
 from venv import logger
 from django.http import JsonResponse
 from django.test import tag
@@ -1605,8 +1610,7 @@ class ContactListCreateView(APIView):
         user = request.user
         if not user:
             return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
-        # Ensure user is authenticated and has a role
-        
+
         role = user.get("role")
         token_admin_id = user.get("admin_id")
 
@@ -1618,9 +1622,8 @@ class ContactListCreateView(APIView):
                 return Response({'error': f'{field} is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         widget_id = data.get('widget_id')
-        admin_id = data.get('admin_id') or token_admin_id  # fallback to logged-in user for agent
+        admin_id = data.get('admin_id') or token_admin_id
 
-        # Agent role restrictions
         if role == 'agent':
             if admin_id != token_admin_id:
                 return Response({'error': 'Agents can only create contacts for themselves.'}, status=403)
@@ -1629,20 +1632,37 @@ class ContactListCreateView(APIView):
             if widget_id not in allowed_widgets:
                 return Response({'error': 'Access denied to this widget'}, status=403)
 
+        # Normalize empty strings to None
+        name = data.get('name')
+        email = data.get('email')
+        phone = data.get('phone')
+        secondary_email = data.get('secondary_email')
+        address = data.get('address')
+
+        if name == '':
+            name = None
+        if email == '':
+            email = None
+        if phone == '':
+            phone = None
+        if secondary_email == '':
+            secondary_email = None
+        if address == '':
+            address = None
+
         contact = {
             'contact_id': data.get('contact_id') or generate_contact_id(),
-            'name': data.get('name'),
-            'email': data.get('email'),
-            'phone': data.get('phone', ''),
-            'secondary_email': data.get('secondary_email', ''),
-            'address': data.get('address', ''),
+            'name': name,
+            'email': email,
+            'phone': phone,
+            'secondary_email': secondary_email,
+            'address': address,
             'admin_id': admin_id,
             'widget_id': widget_id,
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
         }
-        
-        # Add any custom fields
+
         reserved_keys = {'contact_id', 'widget_id', 'admin_id', 'created_at', 'updated_at', 'name', 'email', 'phone', 'secondary_email', 'address'}
         for key, value in data.items():
             if key not in reserved_keys:
@@ -1652,11 +1672,16 @@ class ContactListCreateView(APIView):
             result = get_contact_collection().insert_one(contact)
             contact['_id'] = str(result.inserted_id)
             return Response(contact, status=status.HTTP_201_CREATED)
-        except DuplicateKeyError:
-            return Response(
-                {"error": "A contact with this email already exists."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        except DuplicateKeyError as e:
+            # Check if duplicate on email or name
+            error_message = str(e)
+            if 'email_1' in error_message:
+                return Response({"error": "A contact with this email already exists."}, status=status.HTTP_400_BAD_REQUEST)
+            elif 'name_1' in error_message:
+                return Response({"error": "A contact with this name already exists."}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({"error": "Duplicate key error."}, status=status.HTTP_400_BAD_REQUEST)
+
 
 
 

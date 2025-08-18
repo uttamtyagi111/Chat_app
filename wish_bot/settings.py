@@ -181,6 +181,72 @@ TEMPLATES = [
 # WSGI_APPLICATION = 'wish_bot.wsgi.application'
 ASGI_APPLICATION = 'wish_bot.asgi.application'
 
+# Redis configuration from environment
+REDIS_USER = os.getenv("REDIS_USER", "default")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", "")
+REDIS_HOST = os.getenv("REDIS_HOST", "127.0.0.1")
+REDIS_PORT = os.getenv("REDIS_PORT", "6379")
+
+
+
+# settings.py - Enhanced Redis Configuration for Production Performance
+
+# ✅ ENHANCED Channel Layers Configuration
+# CHANNEL_LAYERS = {
+#     'default': {
+#         'BACKEND': 'channels_redis.core.RedisChannelLayer',
+#         'CONFIG': {
+#             "hosts": [
+#                 f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
+#             ],
+#             # ✅ PERFORMANCE CRITICAL: Add these missing configurations
+#             "capacity": 2000,  # Increased from default 100
+#             "expiry": 60,      # Message expiry in seconds
+#             "group_expiry": 86400,  # Group expiry (24 hours)
+#             "prefix": "asgi:",  # Avoid key conflicts
+
+#             # ✅ CONNECTION POOLING - Critical for production
+#             "symmetric_encryption_keys": [os.getenv("SECRET_KEY", "your-secret-key")],
+
+#             # ✅ REDIS SPECIFIC OPTIMIZATIONS
+#           # 1MB buffer for large messages
+#             "channel_capacity": {
+#                 "http.request": 200,
+#                 "http.response!*": 10,
+#                 "websocket.send!*": 20,
+#             },
+#         },
+#     },
+# }
+
+# # ✅ ENHANCED Cache Configuration with Connection Pooling
+# CACHES = {
+#     "default": {
+#         "BACKEND": "django_redis.cache.RedisCache",
+#         "LOCATION": f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/1",
+#         "OPTIONS": {
+#             "CLIENT_CLASS": "django_redis.client.DefaultClient",
+#             # ✅ CONNECTION POOLING - Essential for production
+#             "CONNECTION_POOL_KWARGS": {
+#                 "max_connections": 50,     # Increase connection pool
+#                 "retry_on_timeout": True,  # Auto-retry on timeout
+#                 "socket_connect_timeout": 5,
+#                 "socket_timeout": 5,
+#                 "connection_pool_class_kwargs": {
+#                     "socket_keepalive": True,
+#                     "socket_keepalive_options": {},
+#                 }
+#             },
+#             # ✅ SERIALIZATION OPTIMIZATION
+#             "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+#             "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",
+#             "IGNORE_EXCEPTIONS": True,  # Don't break on cache errors
+#         },
+#         "TIMEOUT": 300,  # 5 minutes default timeout
+#         "VERSION": 1,
+#     }
+# }
+
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
@@ -189,7 +255,6 @@ CHANNEL_LAYERS = {
         },
     },
 }
-
 # Cache configuration
 CACHES = {
     "default": {
@@ -223,9 +288,6 @@ REPLY_TO_EMAIL = os.getenv('REPLY_TO_EMAIL', DEFAULT_FROM_EMAIL)
 
 # Email timeout settings
 EMAIL_TIMEOUT = 30
-
-
-#### THIS SHOWS ERROR IN PRODUCTION NEEDED MUCH CONFIG####
 # SECURE_SSL_REDIRECT = True
 # SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # SECURE_CONTENT_TYPE_NOSNIFF = True
@@ -331,4 +393,21 @@ LOGGING = {
         'handlers': ['console'],
         'level': 'INFO',
     },
+
+ }
+
+# ✅ PERFORMANCE MONITORING (Optional but recommended)
+WEBSOCKET_METRICS = {
+    'ENABLE_METRICS': True,
+    'MESSAGE_RATE_LIMIT': 100,  # messages per minute per connection
+    'CONNECTION_TIMEOUT': 300,   # 5 minutes
+    'MAX_CONNECTIONS_PER_IP': 10,
+}
+
+# ✅ ADDITIONAL REDIS SETTINGS for production
+REDIS_SETTINGS = {
+    'SOCKET_CONNECT_TIMEOUT': 5,
+    'SOCKET_TIMEOUT': 5,
+    'RETRY_ON_TIMEOUT': True,
+    'HEALTH_CHECK_INTERVAL': 30,
 }
