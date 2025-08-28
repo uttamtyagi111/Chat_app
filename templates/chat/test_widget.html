@@ -1,101 +1,112 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-    <meta charset="UTF-8">
+  <head>
+    <meta charset="UTF-8" />
     <title>Test Chat Widget</title>
 
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background-color: #f5f5f5;
-        }
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background-color: #f5f5f5;
+      }
 
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
 
-        .ip-info {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 10px 0;
-        }
+      .ip-info {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 5px;
+        margin: 10px 0;
+      }
 
-        .error {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 5px;
-            border: 1px solid #f5c6cb;
-        }
+      .error {
+        background: #f8d7da;
+        color: #721c24;
+        padding: 15px;
+        border-radius: 5px;
+        border: 1px solid #f5c6cb;
+      }
 
-        .info-grid {
-            display: grid;
-            grid-template-columns: 1fr 2fr;
-            gap: 10px;
-            margin: 10px 0;
-        }
+      .info-grid {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 10px;
+        margin: 10px 0;
+      }
 
-        .info-label {
-            font-weight: bold;
-            color: #495057;
-        }
+      .info-label {
+        font-weight: bold;
+        color: #495057;
+      }
 
-        .lookup-form {
-            margin: 20px 0;
-            padding: 15px;
-            background: #e9ecef;
-            border-radius: 5px;
-        }
+      .lookup-form {
+        margin: 20px 0;
+        padding: 15px;
+        background: #e9ecef;
+        border-radius: 5px;
+      }
 
-        input[type="text"] {
-            padding: 8px;
-            width: 200px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
+      input[type="text"] {
+        padding: 8px;
+        width: 200px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
 
-        button {
-            padding: 8px 16px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
+      button {
+        padding: 8px 16px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
 
-        button:hover {
-            background: #0056b3;
-        }
+      button:hover {
+        background: #0056b3;
+      }
     </style>
+  </head>
 
-</head>
-
-<body>
+  <body>
     <h1>Test Chat Widget</h1>
     <div class="container">
+      <!-- Chat Widget JS from your domain -->
+      <!-- <script src="https://chat.wishgeekstechserve.com/static/js/chat_widget2.js?widget_id=cff08cd0-2eeb"></script> -->
 
-        <!-- Chat Widget JS from your domain -->
-        <script src="https://chat.wishgeekstechserve.com/static/js/chat_widget2.js?widget_id=cff08cd0-2eeb"></script>
-
-
-        <!-- Start of Chat Widget Script -->
-        <!-- <script src="http://localhost:8000/static/js/chat_widget2.js?widget_id=526c511b-e8f2"></script> -->
-        <!-- End of Chat Widget Script -->
-
+      <!-- Start of Chat Widget Script -->
+      <script src="http://localhost:8000/static/js/chat_widget2.js?widget_id=e1e7a679-e5a2"></script>
+      <!-- End of Chat Widget Script -->
     </div>
 
     <script>
-        console.log("Page loaded from:", window.location.href);
-        console.log("Chat widget script loaded successfully.");
+      console.log("Page loaded from:", window.location.href);
+      console.log("Chat widget script loaded successfully.");
     </script>
-</body>
+    <script>
+  document.addEventListener("click", (e) => {
+    if (e.target.id === "full-view-btn") {
+      const chatWindow = document.getElementById("chat-window");
+      if (chatWindow) chatWindow.classList.toggle("fullscreen");
 
+      // Toggle emoji and title
+      if (chatWindow.classList.contains("fullscreen")) {
+        e.target.textContent = "🗗"; // Small view emoji
+        e.target.title = "Small View";
+      } else {
+        e.target.textContent = "⛶"; // Full view emoji
+        e.target.title = "Full View";
+      }
+    }
+  });
+</script>
+  </body>
 </html>

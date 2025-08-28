@@ -286,7 +286,7 @@ async function initializeChatWidget() {
             select.addEventListener('change', (e) => {
                 historyLimit = e.target.value;
                 localStorage.setItem('chat_history_limit', historyLimit);
-                loadChatHistory();
+                // loadChatHistory();
             });
 
             const toggleBtn = document.createElement('button');
@@ -503,10 +503,10 @@ async function initializeChatWidget() {
                 }));
 
                 // Load chat history if not already loaded
-                if (!chatHistoryLoaded) {
-                    await loadChatHistory();
-                    chatHistoryLoaded = true;
-                }
+                // if (!chatHistoryLoaded) {
+                //     await loadChatHistory();
+                //     chatHistoryLoaded = true;
+                // }
             };
 
             socket.onmessage = (event) => {
@@ -554,76 +554,76 @@ async function initializeChatWidget() {
         }
 
         // Load chat history from server
-        async function loadChatHistory() {
-            try {
-                console.log(`📜 Loading chat history (limit: ${historyLimit})...`);
+        // async function loadChatHistory() {
+        //     try {
+        //         console.log(`📜 Loading chat history (limit: ${historyLimit})...`);
 
-                const loadingId = `loading-${Date.now()}`;
-                appendSystemMessage("Loading chat history...", loadingId);
+        //         const loadingId = `loading-${Date.now()}`;
+        //         appendSystemMessage("Loading chat history...", loadingId);
 
-                const response = await fetch(WIDGET_CONFIG.historyUrl, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "X-Requested-With": "XMLHttpRequest",
-                    },
-                    body: JSON.stringify({
-                        room_id: roomId,
-                        widget_id: localStorage.getItem("chat_widget_id"),
-                        limit: historyLimit === 'full' ? 0 : parseInt(historyLimit)
-                    }),
-                });
+        //         const response = await fetch(WIDGET_CONFIG.historyUrl, {
+        //             method: "POST",
+        //             headers: {
+        //                 "Content-Type": "application/json",
+        //                 "X-Requested-With": "XMLHttpRequest",
+        //             },
+        //             body: JSON.stringify({
+        //                 room_id: roomId,
+        //                 widget_id: localStorage.getItem("chat_widget_id"),
+        //                 limit: historyLimit === 'full' ? 0 : parseInt(historyLimit)
+        //             }),
+        //         });
 
-                if (!response.ok) {
-                    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-                    throw new Error(error.error || 'Failed to load chat history');
-                }
+        //         if (!response.ok) {
+        //             const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+        //             throw new Error(error.error || 'Failed to load chat history');
+        //         }
 
-                const history = await response.json();
+        //         const history = await response.json();
 
-                // Remove loading indicator
-                const loadingElement = document.getElementById(`msg-${loadingId}`);
-                if (loadingElement) loadingElement.remove();
+        //         // Remove loading indicator
+        //         const loadingElement = document.getElementById(`msg-${loadingId}`);
+        //         if (loadingElement) loadingElement.remove();
 
-                if (history.messages && history.messages.length > 0) {
-                    // Clear existing non-system messages
-                    const existingMessages = elements.messagesDiv.querySelectorAll('.message:not(.system)');
-                    existingMessages.forEach(msg => msg.remove());
+        //         if (history.messages && history.messages.length > 0) {
+        //             // Clear existing non-system messages
+        //             const existingMessages = elements.messagesDiv.querySelectorAll('.message:not(.system)');
+        //             existingMessages.forEach(msg => msg.remove());
 
-                    // Add history messages
-                    history.messages.forEach(msg => {
-                        appendMessage(
-                            msg.sender,
-                            msg.message,
-                            msg.file_url,
-                            msg.file_name,
-                            msg.sender === "User" ? "user" : msg.sender === "System" ? "system" : "agent",
-                            msg.message_id,
-                            msg.status || "delivered",
-                            msg.timestamp
-                        );
+        //             // Add history messages
+        //             history.messages.forEach(msg => {
+        //                 appendMessage(
+        //                     msg.sender,
+        //                     msg.message,
+        //                     msg.file_url,
+        //                     msg.file_name,
+        //                     msg.sender === "User" ? "user" : msg.sender === "System" ? "system" : "agent",
+        //                     msg.message_id,
+        //                     msg.status || "delivered",
+        //                     msg.timestamp
+        //                 );
 
-                        // Track user messages that need seen status updates
-                        if (msg.sender === "User") {
-                            sentMessages[msg.message_id] = true;
-                        }
-                    });
+        //                 // Track user messages that need seen status updates
+        //                 if (msg.sender === "User") {
+        //                     sentMessages[msg.message_id] = true;
+        //                 }
+        //             });
 
-                    // Show history info
-                    // appendSystemMessage(`Loaded ${history.returned_messages} of ${history.total_messages} messages`);
+        //             // Show history info
+        //             // appendSystemMessage(`Loaded ${history.returned_messages} of ${history.total_messages} messages`);
 
-                    // Mark messages as seen if chat is open
-                    if (widgetState.isOpen) {
-                        markAllMessagesAsSeen();
-                    }
-                } else {
-                    appendSystemMessage("No chat history found");
-                }
-            } catch (error) {
-                console.error("Error loading chat history:", error);
-                appendSystemMessage("Could not load chat history: " + error.message);
-            }
-        }
+        //             // Mark messages as seen if chat is open
+        //             if (widgetState.isOpen) {
+        //                 markAllMessagesAsSeen();
+        //             }
+        //         } else {
+        //             appendSystemMessage("No chat history found");
+        //         }
+        //     } catch (error) {
+        //         console.error("Error loading chat history:", error);
+        //         appendSystemMessage("Could not load chat history: " + error.message);
+        //     }
+        // }
 
         function updateConnectionStatus(connected) {
             const statusElements = document.querySelectorAll(".connection-status, .status-indicator");
