@@ -166,16 +166,12 @@ def refresh_token_view(request):
 
     return JsonResponse({'access': new_access})
 
-
-
-# ✅ Logout: hash & store refresh token in blacklist with TTL
 @require_http_methods(["POST"])
 @jwt_required
 def logout(request):
     logger.info("Logout attempt initiated")
     
     try:
-        # Parse JSON body from Django request
         try:
             body = json.loads(request.body.decode('utf-8'))
             refresh_token = body.get("refresh")
@@ -215,31 +211,7 @@ def logout(request):
         )
         return JsonResponse({"error": "Invalid refresh token"}, status=400)
 
-# # ✅ Create Agent: Only for superadmin (manual role check)
-# @csrf_exempt
-# @jwt_required
-# def create_agent(request):
-#     user = request.user
-#     if user.get('role') != 'superadmin':
-#         return JsonResponse({"error": "Unauthorized"}, status=403)
 
-#     data = json.loads(request.body)
-#     data['email'] = data.get('email', '').lower()
-#     data['role'] = 'agent'
-#     data['admin_id'] = str(uuid.uuid4())
-#     data['password'] = hash_password(data['password'])
-#     data['created_at'] = datetime.datetime.utcnow()
-#     if not data.get('email') or not data.get('password'):
-#         return JsonResponse({"error": "Email and password are required"}, status=400)
-#     if not validate_email_format(data['email']):
-#             return JsonResponse({"error": "Invalid email format"}, status=400)
-#     get_admin_collection().insert_one(data)
-
-#     return JsonResponse({"message": "Agent created successfully"})
-
-
-
-# ✅ Request password reset via code
 @csrf_exempt
 @require_http_methods(["POST"])
 def request_password_reset(request):

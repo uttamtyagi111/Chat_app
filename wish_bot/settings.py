@@ -143,7 +143,9 @@ ROOT_URLCONF = 'wish_bot.urls'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
+    
+    'DATETIME_FORMAT': "%Y-%m-%d %I:%M:%S %p %z",
 }
 
 from datetime import timedelta
