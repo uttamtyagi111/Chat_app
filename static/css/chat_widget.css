@@ -103,7 +103,9 @@
     /* ${parseInt(WIDGET_CONFIG.bubbleSize) - 24}px */
     height: 50px;
     /* ${parseInt(WIDGET_CONFIG.bubbleSize) - 24}px */
-    border-radius: 200px;
+     border-radius: 50%;
+    object-fit: contain; /* Keeps entire image visible, no cropping */
+    background-color: #fff;
 }
 
 .notification-badge {
@@ -165,6 +167,20 @@
     }
 }
 
+/* Full View / Fullscreen Mode */
+#chat-window.fullscreen {
+    width: 100vw;
+    height: 100vh;
+    bottom: 0;
+    right: 0;
+    left: 0;
+    border-radius: 0;
+    max-height: 100vh;
+    max-width: 100vw;
+   
+}
+
+
 #chat-window {
     position: fixed;
     bottom: 90px;
@@ -182,20 +198,27 @@
     flex-direction: column;
     overflow: hidden;
     z-index: 1000;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+
 }
 
 #chat-messages-logo-container {
-    position: sticky;
-    top: 0px;
-    left: 0;
-    width: -webkit-fill-available;
-    height: 0;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%); /* 👈 असली centering */
+  width: 100%;
+  height: auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 #chat-messages-logo {
-    height: auto;
-    width: 100%;
-    filter: blur(3px);
+  max-width: 400px;
+  width: 80%;
+  height: auto;
+  filter: blur(1px);
     /* filter: opacity(0.5); */
 }
 
@@ -217,8 +240,11 @@
 #chat-content {
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
-    max-height: 80vh;
+  
+    flex: 1;
+    overflow: hidden; 
+background: #fff; 
+    
 }
 
 #chat-messages-backdrop {
@@ -234,14 +260,16 @@
 #chat-messages {
     flex: 1;
     padding: 15px;
+     padding-bottom: 60px;
     background: #f9f9f9;
     min-height: 300px;
-    max-height: 400px;
+    max-height: 90vh;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 8px;
     position: relative;
+    
 }
 
 /* Message Styles */
@@ -567,11 +595,15 @@
 }
 
 #chat-footer {
+     position: relative; 
+    bottom: 0;
+    left: 0;
+    width: 100%;
     display: flex;
     align-items: center;
     border-top: 1px solid #ddd;
     padding: 10px;
-    background: #fafafa;
+    background: #ddd;
     gap: 8px;
 }
 
@@ -709,7 +741,7 @@
     #chat-window {
         width: calc(100vw - 30px);
         ${WIDGET_CONFIG.position}: 15px;
-        max-height: 85vh;
+        max-height: 100vhvh;
         width: 250px;
     }
 
