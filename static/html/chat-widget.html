@@ -1,6 +1,7 @@
 <!-- Chat Bubble Container with Attention Grabber -->
 <div id="chat-bubble-container">
   <div id="attention-grabber">
+    <span id="close-attention-grabber" title="Close">✕</span>
     <img src="${WIDGET_CONFIG.attentionGrabber}" alt="Icon" />
     <!-- <div class="grabber-texts">
             <div class="grabber-title">${WIDGET_CONFIG.attentionTitle || 'LET\'S CHAT'}</div>
@@ -38,7 +39,7 @@
   <div id="chat-content">
     <div id="chat-messages">
       <!-- Background Logo -->
-      <div id="chat-messages-logo-container">
+      <!-- <div id="chat-messages-logo-container">
         <img
           id="chat-messages-logo"
           src="${WIDGET_CONFIG.logoUrl}"
@@ -46,7 +47,7 @@
           onload="console.log('Logo loaded')"
           onerror="console.error('Failed to load logo')"
         />
-      </div>
+      </div> -->
 
       <!-- Welcome Message (example) -->
       <!-- <div class="message system">

@@ -35,6 +35,29 @@
     z-index: -1;
 }
 
+#close-attention-grabber {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 20px;
+    height: 20px;
+    background: #ff4757;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    z-index: 10;
+    transition: background-color 0.2s ease;
+}
+
+#close-attention-grabber:hover {
+    background: #ff3742;
+}
+
 #attention-grabber img {
     width: 200px;
     height: fit-content;
@@ -103,8 +126,9 @@
     /* ${parseInt(WIDGET_CONFIG.bubbleSize) - 24}px */
     height: 50px;
     /* ${parseInt(WIDGET_CONFIG.bubbleSize) - 24}px */
-     border-radius: 50%;
-    object-fit: contain; /* Keeps entire image visible, no cropping */
+    border-radius: 50%;
+    object-fit: contain;
+    /* Keeps entire image visible, no cropping */
     background-color: #fff;
 }
 
@@ -177,7 +201,7 @@
     border-radius: 0;
     max-height: 100vh;
     max-width: 100vw;
-   
+
 }
 
 
@@ -203,22 +227,24 @@
 }
 
 #chat-messages-logo-container {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%); /* 👈 असली centering */
-  width: 100%;
-  height: auto;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+    position: absolute;
+    /* top: 50%; */
+    /* left: 50%; */
+    /* transform: translate(-50%, -50%); */
+    width: 80%;
+    height: 80vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 #chat-messages-logo {
-  max-width: 400px;
-  width: 80%;
-  height: auto;
-  filter: blur(1px);
+    position: fixed;
+    top: 0;
+    max-width: 400px;
+    width: 80%;
+    height: auto;
+    filter: blur(1px);
     /* filter: opacity(0.5); */
 }
 
@@ -240,11 +266,11 @@
 #chat-content {
     display: flex;
     flex-direction: column;
-  
+
     flex: 1;
-    overflow: hidden; 
-background: #fff; 
-    
+    overflow: hidden;
+    background: #fff;
+
 }
 
 #chat-messages-backdrop {
@@ -260,7 +286,7 @@ background: #fff;
 #chat-messages {
     flex: 1;
     padding: 15px;
-     padding-bottom: 60px;
+    padding-bottom: 60px;
     background: #f9f9f9;
     min-height: 300px;
     max-height: 90vh;
@@ -269,7 +295,7 @@ background: #fff;
     flex-direction: column;
     gap: 8px;
     position: relative;
-    
+
 }
 
 /* Message Styles */
@@ -595,7 +621,7 @@ background: #fff;
 }
 
 #chat-footer {
-     position: relative; 
+    position: relative;
     bottom: 0;
     left: 0;
     width: 100%;
@@ -741,7 +767,7 @@ background: #fff;
     #chat-window {
         width: calc(100vw - 30px);
         ${WIDGET_CONFIG.position}: 15px;
-        max-height: 100vhvh;
+        max-height: 100vh;
         width: 250px;
     }
 

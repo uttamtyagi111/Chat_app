@@ -227,6 +227,18 @@ async function initializeChatWidget() {
         const processedHTML = await loadHTML();
         widgetContainer.innerHTML = processedHTML;
 
+        // Handle attention grabber close button
+        const closeAttentionBtn = document.getElementById("close-attention-grabber");
+        const attentionGrabber = document.getElementById("attention-grabber");
+
+        if (closeAttentionBtn && attentionGrabber) {
+            closeAttentionBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                attentionGrabber.style.display = "none";
+                // Don't store anything - let it reset on reload
+            });
+        }
+
         // Initialize DOM elements after HTML is loaded
         const elements = {
             muteToggle: document.getElementById("mute-toggle"),
@@ -471,6 +483,24 @@ async function initializeChatWidget() {
                 // When opening, mark all messages as seen
                 if (!isVisible && socket && socket.readyState === WebSocket.OPEN) {
                     markAllMessagesAsSeen();
+                }
+            });
+        }
+
+        // Set up fullscreen toggle
+        const fullViewBtn = document.getElementById("full-view-btn");
+        if (fullViewBtn && elements.chatWindow) {
+            fullViewBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                elements.chatWindow.classList.toggle("fullscreen");
+
+                // Toggle emoji and title
+                if (elements.chatWindow.classList.contains("fullscreen")) {
+                    e.target.textContent = "🗗"; // Small view emoji
+                    e.target.title = "Small View";
+                } else {
+                    e.target.textContent = "⛶"; // Full view emoji
+                    e.target.title = "Full View";
                 }
             });
         }
@@ -898,8 +928,8 @@ async function initializeChatWidget() {
                 else if (isDoc) fileIcon = "📝";
 
                 content += `<div class="file-preview">${isImage
-                        ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" onclick="openImageModal('${sanitizeHTML(fileUrl)}')" style="max-width: 200px; cursor: pointer;" />`
-                        : `<a href="${sanitizeHTML(fileUrl)}" target="_blank" rel="noopener noreferrer">${fileIcon} ${sanitizeHTML(fileName)}</a>`
+                    ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" onclick="openImageModal('${sanitizeHTML(fileUrl)}')" style="max-width: 200px; cursor: pointer;" />`
+                    : `<a href="${sanitizeHTML(fileUrl)}" target="_blank" rel="noopener noreferrer">${fileIcon} ${sanitizeHTML(fileName)}</a>`
                     }</div>`;
             }
 
@@ -947,8 +977,8 @@ async function initializeChatWidget() {
             if (fileUrl) {
                 const isImage = /\.(jpg|jpeg|png|gif)$/i.test(fileName);
                 content += `<div class="file-preview">${isImage
-                        ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" />`
-                        : `<a href="${sanitizeHTML(fileUrl)}" target="_blank" rel="noopener noreferrer">${sanitizeHTML(fileName)}</a>`
+                    ? `<img src="${sanitizeHTML(fileUrl)}" alt="${sanitizeHTML(fileName)}" />`
+                    : `<a href="${sanitizeHTML(fileUrl)}" target="_blank" rel="noopener noreferrer">${sanitizeHTML(fileName)}</a>`
                     }</div>`;
             }
 
@@ -1018,12 +1048,18 @@ async function initializeChatWidget() {
             console.log("✅ Suggested replies container added to DOM");
         }
 
+        let isSending = false;
+
+        // Message sending
         // Message sending
         function sendMessage() {
-            if (!elements.input || !socket) return;
+            if (!elements.input || !socket || isSending) return;
 
             const messageText = elements.input.value.trim();
             if (!messageText && !elements.fileInput.files[0]) return;
+
+            // Set sending state to prevent multiple submissions
+            isSending = true;
 
             // If we have a file, upload it first
             if (elements.fileInput.files[0]) {
@@ -1052,6 +1088,11 @@ async function initializeChatWidget() {
             // Reset typing state
             widgetState.isTyping = false;
             sendTypingNotification(false);
+
+            // Reset sending state after a short delay
+            setTimeout(() => {
+                isSending = false;
+            }, 500);
         }
 
         if (elements.input) {
@@ -1156,7 +1197,10 @@ async function initializeChatWidget() {
         }
 
         function uploadFile() {
-            if (!elements.fileInput || !elements.fileInput.files[0] || !socket) return;
+            if (!elements.fileInput || !elements.fileInput.files[0] || !socket) {
+                isSending = false;
+                return;
+            }
 
             const file = elements.fileInput.files[0];
             const messageId = generateMessageId();
@@ -1187,6 +1231,10 @@ async function initializeChatWidget() {
                 .catch((error) => {
                     console.error("Error uploading file:", error);
                     appendSystemMessage("Failed to upload file. Please try again.");
+                })
+                .finally(() => {
+                    // Reset sending state after upload completes (success or failure)
+                    isSending = false;
                 });
         }
 
