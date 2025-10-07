@@ -2,24 +2,20 @@
 let audioContext = null;
 let socket = null;
 let notificationEnabled = true;
-const sentMessages = {};
 let roomId = null;
 let cachedClientIP = null;
 let reconnectAttempts = 0;
+let sentMessages = {}; // Add this line to track sent messages
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 3000; // 3 seconds
-let chatHistoryLoaded = false;
-let historyLimit = localStorage.getItem('chat_history_limit') || 'full';
-const historyOptions = {
-    '5': 'Last 5 messages',
-    '10': 'Last 10 messages',
-    'full': 'Full history'
-};
 
 // Widget state management
 let widgetState = {
     isOpen: false,
     notificationShown: false,
+    isReconnecting: false,
+    reconnectAttempts: 0,
+    reconnectDelay: RECONNECT_DELAY,
     connectionEstablished: false,
     pageLoadTime: Date.now(),
     isTyping: false,
@@ -124,7 +120,6 @@ async function initializeChatWidget() {
             apiUrl: isLocal ? "http://localhost:8000/chat/user-chat/" : "https://chat.wishgeekstechserve.com/api/chat/user-chat/",
             wsUrl: isLocal ? "ws://localhost:8000/ws/chat/" : "wss://chat.wishgeekstechserve.com/ws/chat/",
             fileUploadUrl: isLocal ? "http://localhost:8000/chat/user-chat/upload-file/" : "https://chat.wishgeekstechserve.com/api/chat/user-chat/upload-file/",
-            historyUrl: isLocal ? "http://localhost:8000/chat/user-chat/history/" : "https://chat.wishgeekstechserve.com/api/chat/user-chat/history/",
             cssUrl: isLocal ? "http://localhost:8000/static/css/chat_widget.css" : "https://chat.wishgeekstechserve.com/static/css/chat_widget.css",
             htmlUrl: isLocal ? "http://localhost:8000/static/html/chat-widget.html" : "https://chat.wishgeekstechserve.com/static/html/chat-widget.html",
             position: settings.position,
@@ -273,93 +268,93 @@ async function initializeChatWidget() {
         initAudioContext();
 
         // Add history controls
-        function addHistoryControls() {
-            if (document.querySelector('.history-controls')) return;
+        // function addHistoryControls() {
+        //     if (document.querySelector('.history-controls')) return;
 
-            const historyControls = document.createElement('div');
-            historyControls.className = 'history-controls';
-            historyControls.style.display = 'none';
+        //     const historyControls = document.createElement('div');
+        //     historyControls.className = 'history-controls';
+        //     historyControls.style.display = 'none';
 
-            const label = document.createElement('span');
-            label.textContent = 'Load history:';
-            label.className = 'history-label';
+        //     const label = document.createElement('span');
+        //     label.textContent = 'Load history:';
+        //     label.className = 'history-label';
 
-            const select = document.createElement('select');
-            select.className = 'history-select';
+        //     const select = document.createElement('select');
+        //     select.className = 'history-select';
 
-            Object.entries(historyOptions).forEach(([value, text]) => {
-                const option = document.createElement('option');
-                option.value = value;
-                option.textContent = text;
-                if (value === historyLimit) option.selected = true;
-                select.appendChild(option);
-            });
+        //     Object.entries(historyOptions).forEach(([value, text]) => {
+        //         const option = document.createElement('option');
+        //         option.value = value;
+        //         option.textContent = text;
+        //         if (value === historyLimit) option.selected = true;
+        //         select.appendChild(option);
+        //     });
 
-            select.addEventListener('change', (e) => {
-                historyLimit = e.target.value;
-                localStorage.setItem('chat_history_limit', historyLimit);
-                // loadChatHistory();
-            });
+        //     select.addEventListener('change', (e) => {
+        //         historyLimit = e.target.value;
+        //         localStorage.setItem('chat_history_limit', historyLimit);
+        //         // loadChatHistory();
+        //     });
 
-            const toggleBtn = document.createElement('button');
-            toggleBtn.className = 'history-toggle';
-            toggleBtn.innerHTML = '⚙️';
-            toggleBtn.title = 'History settings';
-            toggleBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                historyControls.style.display = historyControls.style.display === 'none' ? 'flex' : 'none';
-            });
+        //     const toggleBtn = document.createElement('button');
+        //     toggleBtn.className = 'history-toggle';
+        //     toggleBtn.innerHTML = '⚙️';
+        //     toggleBtn.title = 'History settings';
+        //     toggleBtn.addEventListener('click', (e) => {
+        //         e.stopPropagation();
+        //         historyControls.style.display = historyControls.style.display === 'none' ? 'flex' : 'none';
+        //     });
 
-            historyControls.appendChild(label);
-            historyControls.appendChild(select);
+        //     historyControls.appendChild(label);
+        //     historyControls.appendChild(select);
 
-            const chatHeader = document.querySelector('.chat-header');
-            if (chatHeader) {
-                chatHeader.appendChild(toggleBtn);
-                chatHeader.appendChild(historyControls);
-            }
+        //     const chatHeader = document.querySelector('.chat-header');
+        //     if (chatHeader) {
+        //         chatHeader.appendChild(toggleBtn);
+        //         chatHeader.appendChild(historyControls);
+        //     }
 
-            const style = document.createElement('style');
-            style.textContent = `
-                .history-controls {
-                    display: none;
-                    align-items: center;
-                    gap: 8px;
-                    padding: 8px;
-                    background: #f5f5f5;
-                    border-radius: 4px;
-                    position: absolute;
-                    right: 40px;
-                    top: 10px;
-                    z-index: 100;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-                }
-                .history-label {
-                    font-size: 12px;
-                    color: #666;
-                }
-                .history-select {
-                    padding: 4px;
-                    border-radius: 4px;
-                    border: 1px solid #ccc;
-                    font-size: 12px;
-                }
-                .history-toggle {
-                    background: none;
-                    border: none;
-                    cursor: pointer;
-                    font-size: 16px;
-                    padding: 4px;
-                    position: absolute;
-                    right: 10px;
-                    top: 10px;
-                }
-                .history-toggle:hover {
-                    opacity: 0.8;
-                }
-            `;
-            document.head.appendChild(style);
-        }
+        //     const style = document.createElement('style');
+        //     style.textContent = `
+        //         .history-controls {
+        //             display: none;
+        //             align-items: center;
+        //             gap: 8px;
+        //             padding: 8px;
+        //             background: #f5f5f5;
+        //             border-radius: 4px;
+        //             position: absolute;
+        //             right: 40px;
+        //             top: 10px;
+        //             z-index: 100;
+        //             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        //         }
+        //         .history-label {
+        //             font-size: 12px;
+        //             color: #666;
+        //         }
+        //         .history-select {
+        //             padding: 4px;
+        //             border-radius: 4px;
+        //             border: 1px solid #ccc;
+        //             font-size: 12px;
+        //         }
+        //         .history-toggle {
+        //             background: none;
+        //             border: none;
+        //             cursor: pointer;
+        //             font-size: 16px;
+        //             padding: 4px;
+        //             position: absolute;
+        //             right: 10px;
+        //             top: 10px;
+        //         }
+        //         .history-toggle:hover {
+        //             opacity: 0.8;
+        //         }
+        //     `;
+        //     document.head.appendChild(style);
+        // }
 
         // Initialize widget behavior
         function initializeWidgetBehavior() {
@@ -392,7 +387,20 @@ async function initializeChatWidget() {
                 widgetState.notificationShown = true;
                 console.log("🎉 Notification badge shown successfully!");
             } else {
-                console.error("❌ Notification badge not found");
+                console.log("🔧 Creating notification badge dynamically");
+                const chatBubble = document.getElementById("chat-bubble");
+                if (chatBubble) {
+                    const newBadge = document.createElement("span");
+                    newBadge.className = "notification-badge";
+                    newBadge.textContent = "1";
+                    newBadge.style.cssText = "position:absolute;top:-6px;right:-6px;width:22px;height:22px;background:#ff4757;color:white;border-radius:50%;font-size:12px;font-weight:bold;border:2px solid white;display:flex;align-items:center;justify-content:center;z-index:1001;";
+                    chatBubble.appendChild(newBadge);
+                    newBadge.classList.add("show");
+                    widgetState.notificationShown = true;
+                    console.log("✅ Notification badge created and shown!");
+                } else {
+                    console.error("❌ Chat bubble not found, cannot create badge");
+                }
             }
         }
 
@@ -554,9 +562,9 @@ async function initializeChatWidget() {
                 updateConnectionStatus(false);
                 widgetState.connectionEstablished = false;
 
-                if (widgetState.isOpen && elements.chatWindow && elements.chatWindow.style.display === "flex") {
-                    appendSystemMessage("Disconnected. Attempting to reconnect...");
-                }
+                // if (widgetState.isOpen && elements.chatWindow && elements.chatWindow.style.display === "flex") {
+                //     appendSystemMessage("Disconnected. Attempting to reconnect...");
+                // }
 
                 // Attempt reconnection
                 if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -577,9 +585,9 @@ async function initializeChatWidget() {
                 updateConnectionStatus(false);
                 widgetState.connectionEstablished = false;
 
-                if (widgetState.isOpen && elements.chatWindow && elements.chatWindow.style.display === "flex") {
-                    appendSystemMessage("Chat error occurred.");
-                }
+                // if (widgetState.isOpen && elements.chatWindow && elements.chatWindow.style.display === "flex") {
+                //     appendSystemMessage("Chat error occurred.");
+                // }
             };
         }
 
@@ -672,15 +680,47 @@ async function initializeChatWidget() {
         // Fixed handleIncomingMessage function
         function handleIncomingMessage(data) {
             if (!elements.messagesDiv || !elements.footer) {
-                console.error("❌ Required DOM elements not found:", {
-                    messagesDiv: !!elements.messagesDiv,
-                    footer: !!elements.footer
-                });
+                console.error("❌ Required DOM elements not found");
                 return;
             }
 
             try {
-                console.log("📩 Processing incoming message:", data);
+                console.log("📩 Received message data:", data);
+
+                // First, handle trigger messages with higher priority
+                if (data.type === 'trigger_message' || data.is_trigger || (data.sender === 'Wish-bot' && data.suggested_replies)) {
+                    console.log("🤖 Processing trigger/bot message");
+                    
+                    // Remove any existing typing indicator
+                    const typingElement = document.getElementById(`typing-Wish-bot`);
+                    if (typingElement) typingElement.remove();
+
+                    // Append the trigger message
+                    appendMessage(
+                        data.sender || 'Wish-bot',
+                        data.message,
+                        null,
+                        null,
+                        'agent',
+                        data.message_id || `trigger-${Date.now()}`,
+                        'delivered',
+                        data.timestamp || new Date().toISOString(),
+                        data.suggested_replies || []
+                    );
+
+                    // Play notification and show badge
+                    playNotificationSound();
+                    if (!widgetState.isOpen) {
+                        showNotificationBadge();
+                    }
+
+                    // Mark message as seen if chat is open
+                    if (widgetState.isOpen && data.message_id) {
+                        markMessageAsSeen(data.message_id);
+                    }
+
+                    return;
+                }
 
                 // Handle typing indicators FIRST (before other checks)
                 if (data.type === 'typing_status' || (data.typing !== undefined && data.sender !== "User")) {
@@ -778,7 +818,7 @@ async function initializeChatWidget() {
                 // Handle errors
                 if (data.error) {
                     console.log("❌ Displaying error message:", data.error);
-                    appendSystemMessage(`Error: ${sanitizeHTML(data.error)}`);
+                    // appendSystemMessage(`Error: ${sanitizeHTML(data.error)}`);
                     return;
                 }
 
@@ -865,7 +905,7 @@ async function initializeChatWidget() {
             } catch (error) {
                 console.error("❌ [PRODUCTION ERROR] Error in handleIncomingMessage:", error);
                 console.error("❌ [PRODUCTION ERROR] Data was:", data);
-                appendSystemMessage("Error processing message. Please refresh the page.");
+                // appendSystemMessage("Error processing message. Please refresh the page.");
             }
         }
 
@@ -1305,12 +1345,11 @@ async function initializeChatWidget() {
 
         // Initialize widget behavior
         initializeWidgetBehavior();
-        addHistoryControls();
 
         // Auto-connect WebSocket
         if (roomId) {
             setTimeout(() => {
-                console.log("🚀 Auto-connecting WebSocket...");
+                console.log(" Auto-connecting WebSocket...");
                 connectWebSocket(roomId);
             }, 1000);
         }
