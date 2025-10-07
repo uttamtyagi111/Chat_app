@@ -368,10 +368,12 @@ def conversation_list(request):
         user = request.jwt_user
         role = user.get('role')
         admin_id = user.get('admin_id')
-        # :small_blue_diamond: Pagination params
+
+        # Pagination params
         page = int(request.GET.get("page", 1))
-        page_size = int(request.GET.get("page_size", 20))  # default 20
+        page_size = int(request.GET.get("page_size", 20))
         skip = (page - 1) * page_size
+
         assigned_widgets = []
         if role == 'agent':
             user_record = get_admin_collection().find_one({'admin_id': admin_id})
@@ -379,17 +381,19 @@ def conversation_list(request):
                 assigned_widgets = user_record.get('assigned_widgets', [])
                 if isinstance(assigned_widgets, str):
                     assigned_widgets = [assigned_widgets]
+
         room_collection = get_room_collection()
         pipeline = []
+
         # Role-based filter
         if role == 'agent':
             pipeline.append({
-                "$match": {
-                    "widget_id": {"$in": assigned_widgets}
-                }
+                "$match": {"widget_id": {"$in": assigned_widgets}}
             })
+
         pipeline += [
-            {"$sort": {"created_at": DESCENDING}},
+            {"$sort": {"created_at": -1}},  # Sort by created_at descending
+
             # Join widget info
             {
                 "$lookup": {
@@ -400,6 +404,7 @@ def conversation_list(request):
                 }
             },
             {"$unwind": {"path": "$widget", "preserveNullAndEmptyArrays": True}},
+
             # Join contact info
             {
                 "$lookup": {
@@ -410,7 +415,18 @@ def conversation_list(request):
                 }
             },
             {"$unwind": {"path": "$contact", "preserveNullAndEmptyArrays": True}},
-            # Get last message, last timestamp, total messages
+
+            # ✅ Join messages collection
+            {
+                "$lookup": {
+                    "from": "messages",
+                    "localField": "room_id",
+                    "foreignField": "room_id",
+                    "as": "messages"
+                }
+            },
+
+            # Add total messages and last message
             {
                 "$addFields": {
                     "total_messages": {"$size": {"$ifNull": ["$messages", []]}},
@@ -422,6 +438,7 @@ def conversation_list(request):
                     }
                 }
             },
+
             # Lookup agent details
             {
                 "$lookup": {
@@ -432,6 +449,8 @@ def conversation_list(request):
                 }
             },
             {"$unwind": {"path": "$agent", "preserveNullAndEmptyArrays": True}},
+
+            # Project fields for response
             {
                 "$project": {
                     "_id": 0,
@@ -462,7 +481,6 @@ def conversation_list(request):
                         "is_online": "$agent.is_online",
                         "organization": "$agent.organization"
                     },
-                    # :white_tick: Limited contact fields only
                     "contact": {
                         "contact_id": "$contact.contact_id",
                         "name": "$contact.name",
@@ -470,18 +488,23 @@ def conversation_list(request):
                     }
                 }
             },
-            {"$sort": {"last_timestamp": DESCENDING}},
-            # :small_blue_diamond: Pagination
+
+            # Sort by last message timestamp
+            {"$sort": {"last_timestamp": -1}},
+
+            # Pagination
             {"$skip": skip},
             {"$limit": page_size}
         ]
+
         results = list(room_collection.aggregate(pipeline))
-        # Add unread counts + typing status
+
+        # Add unread counts and typing users
         for room in results:
             room_id = room['room_id']
             unread_key = f'unread:{room_id}'
             room['unread_count'] = int(redis_client.get(unread_key) or 0)
-            # Typing status
+
             typing_key = f'typing:{room_id}:*'
             typing_users = []
             for key in redis_client.scan_iter(match=typing_key, count=10):
@@ -493,16 +516,19 @@ def conversation_list(request):
                         'content': typing_content
                     })
             room['typing_users'] = typing_users
+
             # Format datetime fields
             for key in ['created_at', 'updated_at', 'last_timestamp']:
                 if key in room and isinstance(room[key], datetime):
                     room[key] = room[key].isoformat()
             if room.get("widget") and isinstance(room["widget"].get("created_at"), datetime):
                 room["widget"]["created_at"] = room["widget"]["created_at"].isoformat()
-        # Total count for pagination UI
+
+        # Total count for pagination
         total_count = room_collection.count_documents(
             {"widget_id": {"$in": assigned_widgets}} if role == "agent" else {}
         )
+
         return JsonResponse({
             "rooms": results,
             "total_count": total_count,
@@ -510,12 +536,14 @@ def conversation_list(request):
             "page_size": page_size,
             "total_pages": (total_count + page_size - 1) // page_size
         }, status=200)
+
     except Exception as e:
         return JsonResponse({
             "error": f"Error fetching rooms: {str(e)}",
             "rooms": [],
             "total_count": 0
         }, status=500)
+
 
 @jwt_required
 def chat_room_view(request, room_id):  # Changed from enhanced_chat_room_view
