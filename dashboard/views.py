@@ -344,6 +344,123 @@ class AgentDetailAPIView(APIView):
             print("🔥 Exception in AgentDetailAPIView:", str(e))
             traceback.print_exc()
             return Response({'error': f"Internal error: {str(e)}"}, status=500)
+        
+class AssignAgentToRoom(APIView):
+    @extend_schema(
+        operation_id="assignAgentToRoom",
+        summary="Assign an agent to an existing chat room by room_id",
+        request={
+            "application/json": {
+                "type": "object",
+                "properties": {
+                    "room_id": {"type": "string", "description": "Chat room ID"},
+                    "agent_name": {"type": "string", "description": "Name of the agent to assign"},
+                },
+                "required": ["room_id", "agent_name"],
+                "example": {
+                    "room_id": "room123",
+                    "agent_name": "John Doe"
+                }
+            }
+        },
+        responses={
+            200: {
+                "description": "Agent assigned successfully",
+                "content": {
+                    "application/json": {
+                        "type": "object",
+                        "properties": {
+                            "message": {"type": "string"}
+                        },
+                        "example": {
+                            "message": "Agent 'John Doe' assigned to room 'room123'"
+                        }
+                    }
+                }
+            },
+            400: {
+                "description": "Bad Request: Missing room_id or agent_name",
+                "content": {
+                    "application/json": {
+                        "type": "object",
+                        "properties": {
+                            "error": {"type": "string"}
+                        },
+                        "example": {
+                            "error": "room_id and agent_name are required"
+                        }
+                    }
+                }
+            },
+            404: {
+                "description": "Chat room not found",
+                "content": {
+                    "application/json": {
+                        "type": "object",
+                        "properties": {
+                            "error": {"type": "string"}
+                        },
+                        "example": {
+                            "error": "Chat room not found"
+                        }
+                    }
+                }
+            },
+            500: {
+                "description": "Internal Server Error",
+                "content": {
+                    "application/json": {
+                        "type": "object",
+                        "properties": {
+                            "error": {"type": "string"}
+                        },
+                        "example": {
+                            "error": "Unexpected server error"
+                        }
+                    }
+                }
+            }
+        }
+    )
+    def post(self, request):
+        try:
+            room_id = request.data.get("room_id")
+            agent_name = request.data.get("agent_name")
+
+            if not room_id or not agent_name:
+                return Response(
+                    {"error": "room_id and agent_name are required"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            room_collection = get_room_collection()
+
+            room = room_collection.find_one({"room_id": room_id})
+            if not room:
+                return Response(
+                    {"error": "Chat room not found"}, status=status.HTTP_404_NOT_FOUND
+                )
+
+            room_collection.update_one(
+                {"room_id": room_id},
+                {"$set": {"assigned_agent": agent_name}}
+            )
+
+            return Response(
+                {"message": f"Agent '{agent_name}' assigned to room '{room_id}'"},
+                status=status.HTTP_200_OK,
+            )
+
+        except PyMongoError as e:
+            return Response(
+                {"error": f"Database error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Unexpected server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 import logging
@@ -383,6 +500,7 @@ def conversation_list(request):
                     assigned_widgets = [assigned_widgets]
 
         room_collection = get_room_collection()
+
         pipeline = []
 
         # Role-based filter
@@ -415,29 +533,53 @@ def conversation_list(request):
                 }
             },
             {"$unwind": {"path": "$contact", "preserveNullAndEmptyArrays": True}},
-
-            # ✅ Join messages collection
+            
+            # ✅ Lookup for last message only (Fixed with timestamp type handling)
             {
                 "$lookup": {
                     "from": "messages",
-                    "localField": "room_id",
-                    "foreignField": "room_id",
-                    "as": "messages"
+                    "let": {"roomId": "$room_id"},
+                    "pipeline": [
+                        {
+                            "$match": {
+                                "$expr": {"$eq": ["$room_id", "$$roomId"]}
+                            }
+                        },
+                        {
+                            # ✅ Convert timestamp string to date if needed
+                            "$addFields": {
+                                "ts": {
+                                    "$cond": {
+                                        "if": {"$eq": [{"$type": "$timestamp"}, "string"]},
+                                        "then": {"$toDate": "$timestamp"},
+                                        "else": "$timestamp"
+                                    }
+                                }
+                            }
+                        },
+                        {"$sort": {"ts": -1}},  # ✅ Sort properly by converted timestamp
+                        {"$limit": 1},
+                        {
+                            "$project": {
+                                "_id": 0,
+                                "message": 1,
+                                "sender": 1,        # 👈 include who sent it
+                                "ts": 1
+                            }
+                        }
+                    ],
+                    "as": "last_message"
+                }
+            },
+            {"$unwind": {"path": "$last_message", "preserveNullAndEmptyArrays": True}},
+            {
+                "$addFields": {
+                    "last_message": "$last_message.message",
+                    "last_sender": "$last_message.sender",
+                    "last_timestamp": "$last_message.ts"
                 }
             },
 
-            # Add total messages and last message
-            {
-                "$addFields": {
-                    "total_messages": {"$size": {"$ifNull": ["$messages", []]}},
-                    "last_message_obj": {
-                        "$arrayElemAt": [
-                            {"$slice": ["$messages", -1]},
-                            0
-                        ]
-                    }
-                }
-            },
 
             # Lookup agent details
             {
@@ -465,8 +607,9 @@ def conversation_list(request):
                     "updated_at": 1,
                     "user_location": 1,
                     "total_messages": 1,
-                    "last_message": "$last_message_obj.message",
-                    "last_timestamp": "$last_message_obj.timestamp",
+                    "last_message": 1,
+                    "last_sender": 1,
+                    "last_timestamp": 1,
                     "widget": {
                         "widget_id": "$widget.widget_id",
                         "name": "$widget.name",
@@ -489,7 +632,7 @@ def conversation_list(request):
                 }
             },
 
-            # Sort by last message timestamp
+            # Sort by last message timestamp (latest first)
             {"$sort": {"last_timestamp": -1}},
 
             # Pagination
@@ -497,9 +640,10 @@ def conversation_list(request):
             {"$limit": page_size}
         ]
 
+        # Execute pipeline
         results = list(room_collection.aggregate(pipeline))
 
-        # Add unread counts and typing users
+        # Add unread counts and typing users from Redis
         for room in results:
             room_id = room['room_id']
             unread_key = f'unread:{room_id}'

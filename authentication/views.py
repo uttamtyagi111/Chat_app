@@ -1,3 +1,5 @@
+from math import prod
+from h11 import PRODUCT_ID
 from utils.email_sender import send_otp_email
 import logging
 from datetime import datetime, timedelta
@@ -52,8 +54,9 @@ def health_check(request):
 @csrf_exempt
 def register_superadmin(request):
     admin_collection = get_admin_collection()
-    if admin_collection.find_one({'role': 'superadmin'}):
-        return JsonResponse({"error": "Superadmin already exists"}, status=403)
+    ######this is not yet done in production
+    # if admin_collection.find_one({'role': 'superadmin'}):
+    #     return JsonResponse({"error": "Superadmin already exists"}, status=403)
 
     if request.method == 'POST':
         data = json.loads(request.body)
